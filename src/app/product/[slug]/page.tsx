@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { products } from "@/data/products";
+import Container from "@/components/ui/Container";
+import OrderForm from "@/components/OrderForm";
 
 type Props = {
   params: Promise<{
@@ -17,20 +19,42 @@ export default async function ProductPage({ params }: Props) {
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="mx-auto max-w-5xl px-6 py-16">
-        <h1 className="text-4xl font-bold">
-          {product.name}
-        </h1>
+  <main className="min-h-screen bg-gray-50 py-10">
+    <Container>
+      <div className="grid gap-10 lg:grid-cols-2">
 
-        <p className="mt-4 text-gray-600">
-          {product.description}
-        </p>
+        {/* Left Side */}
+        <div>
+          <div className="aspect-square rounded-2xl border bg-white flex items-center justify-center">
+            <span className="text-gray-400">
+              Product Image
+            </span>
+          </div>
+        </div>
 
-        <p className="mt-6 text-2xl font-bold">
-          ৳ {product.sellingPrice}
-        </p>
+        {/* Right Side */}
+        <div>
+
+          <h1 className="text-4xl font-bold">
+            {product.name}
+          </h1>
+
+          <p className="mt-4 text-gray-600">
+            {product.description}
+          </p>
+
+          <p className="mt-6 text-3xl font-bold">
+            ৳ {product.sellingPrice}
+          </p>
+
+          <div className="mt-8 rounded-2xl border bg-white p-6">
+            <OrderForm product={product} />
+          </div>
+
+        </div>
+
       </div>
-    </main>
-  );
+    </Container>
+  </main>
+);
 }
