@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Button from "@/components/ui/Button";
 import { Product } from "@/types/product";
 import { coupons } from "@/data/coupons";
@@ -23,61 +23,107 @@ export default function OrderForm({
   const [couponCode, setCouponCode] = useState("");
   const [discount, setDiscount] = useState(0);
   const [couponMessage, setCouponMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const total =
     product.sellingPrice +
     deliveryCharge -
     discount;
 
-const handleOrder = async () => {
-  const orderData = {
-    productId: product.id,
-    productName: product.name,
-    productSlug: product.slug,
-
-    customerName,
-    phone,
-    address,
-
-    deliveryCharge,
-    discount,
-    total,
-
-    couponCode,
-
-    orderDate: new Date().toISOString(),
-  };
-
-  try {
-    const response = await fetch("/api/order", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(orderData),
-    });
-
-    const result = await response.json();
-
-    console.log(result);
-
-    if (result.success) {
-      alert("অর্ডার সফল হয়েছে!");
-
-      setCustomerName("");
-      setPhone("");
-      setAddress("");
-      setCouponCode("");
-      setDiscount(0);
-      setCouponMessage("");
-    } else {
-      alert("অর্ডার জমা হয়নি");
+  useEffect(() => {
+    if (
+      customerName.trim() ||
+      phone.trim() ||
+      address.trim()
+    ) {
+      setErrorMessage("");
     }
-  } catch (error) {
-    console.error(error);
-    alert("সার্ভারে সমস্যা হয়েছে");
-  }
-};
+  }, [customerName, phone, address]);
+
+  const handleOrder = async () => {
+    if (isSubmitting) return;
+
+    const cleanName = customerName.trim();
+    const cleanPhone = phone.trim();
+    const cleanAddress = address.trim();
+
+    if (!cleanName) {
+      setErrorMessage("আপনার নাম লিখুন");
+      return;
+    }
+
+    if (!cleanPhone) {
+      setErrorMessage("মোবাইল নম্বর লিখুন");
+      return;
+    }
+
+    if (!/^01\d{9}$/.test(cleanPhone)) {
+      setErrorMessage(
+        "সঠিক ১১ সংখ্যার মোবাইল নম্বর লিখুন"
+      );
+      return;
+    }
+
+    if (!cleanAddress) {
+      setErrorMessage("সম্পূর্ণ ঠিকানা লিখুন");
+      return;
+    }
+
+    setErrorMessage("");
+    setIsSubmitting(true);
+
+    const orderData = {
+      productId: product.id,
+      productName: product.name,
+      productSlug: product.slug,
+
+      customerName: cleanName,
+      phone: cleanPhone,
+      address: cleanAddress,
+
+      deliveryCharge,
+      discount,
+      total,
+
+      couponCode,
+
+      orderDate: new Date().toISOString(),
+    };
+
+    try {
+      const response = await fetch("/api/order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(orderData),
+      });
+
+      const result = await response.json();
+
+      console.log(result);
+
+      if (result.success) {
+        alert("অর্ডার সফল হয়েছে!");
+
+        setCustomerName("");
+        setPhone("");
+        setAddress("");
+        setCouponCode("");
+        setDiscount(0);
+        setCouponMessage("");
+        setErrorMessage("");
+      } else {
+        alert("অর্ডার জমা হয়নি");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("সার্ভারে সমস্যা হয়েছে");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const applyCoupon = () => {
     const coupon = coupons.find(
@@ -128,6 +174,12 @@ const handleOrder = async () => {
       <h2 className="text-2xl font-bold">
         অর্ডার করুন
       </h2>
+
+      {errorMessage && (
+        <div className="rounded-xl bg-red-100 border border-red-300 p-3 text-red-700">
+          {errorMessage}
+        </div>
+      )}
 
       <input
         type="text"
@@ -250,8 +302,11 @@ const handleOrder = async () => {
       <Button
         type="button"
         onClick={handleOrder}
+        disabled={isSubmitting}
       >
-        🛒 অর্ডার করুন
+        {isSubmitting
+          ? "অর্ডার পাঠানো হচ্ছে..."
+          : "🛒 অর্ডার করুন"}
       </Button>
     </div>
   );
