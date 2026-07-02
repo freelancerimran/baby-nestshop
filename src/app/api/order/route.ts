@@ -1,33 +1,34 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const data = await req.json();
+    const body = await request.json();
 
     const response = await fetch(
-      "https://script.google.com/macros/s/AKfycbyjIdtpMuJBoorS4QCZn7BSGN2nh6xoi6Qv9LH2RKXfSnT6zJ2dtI_F8b0Fw5JZhETy/exec",
+      "https://script.google.com/macros/s/AKfycbzWeaNqryWJzZJXsLqMM7n2mvJJp3rEnNhXjchDbyKBOBrnkXJu_uiOoGvhhlO3I3Dx/exec",
       {
         method: "POST",
-        body: JSON.stringify(data),
+        headers: {
+          "Content-Type": "text/plain",
+        },
+        body: JSON.stringify(body),
       }
     );
 
-    const text = await response.text();
-
-    console.log("========== GOOGLE RESPONSE ==========");
-    console.log(text);
-    console.log("====================================");
+    const googleData = await response.json();
 
     return NextResponse.json({
-      success: true,
-      googleResponse: text,
+      success: googleData.success,
+      orderId: googleData.orderId,
+      googleResponse: googleData,
     });
   } catch (error) {
-    console.error("API ERROR:", error);
+    console.error("ORDER API ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
+        message: "Order submission failed",
       },
       {
         status: 500,

@@ -11,9 +11,9 @@ export interface Product {
   deliveryInsideDhaka: number;
   deliveryOutsideDhaka: number;
 
-  stock: number;
-
   image: string;
 
   status: "active" | "inactive";
+
+  displayStock?: number;
 }

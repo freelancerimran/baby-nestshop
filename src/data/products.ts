@@ -19,8 +19,6 @@ export const products: Product[] = [
 
     deliveryOutsideDhaka: 130,
 
-    stock: 50,
-
     image: "/images/alphabet-book.jpg",
 
     status: "active",
@@ -43,8 +41,6 @@ export const products: Product[] = [
     deliveryInsideDhaka: 80,
 
     deliveryOutsideDhaka: 130,
-
-    stock: 25,
 
     image: "/images/math-book.jpg",
 

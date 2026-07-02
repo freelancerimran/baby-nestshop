@@ -26,10 +26,18 @@ export default function OrderForm({
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [orderSuccess, setOrderSuccess] = useState(false);
+  const [orderId, setOrderId] = useState("");
+
+  const [quantity, setQuantity] = useState(1);
+
+  const [availableStock, setAvailableStock] = useState<number>(0);
+  const [loadingStock, setLoadingStock] = useState(true);
+
   const total =
-    product.sellingPrice +
-    deliveryCharge -
-    discount;
+  product.sellingPrice * quantity +
+  deliveryCharge -
+  discount;
 
   useEffect(() => {
     if (
@@ -41,8 +49,43 @@ export default function OrderForm({
     }
   }, [customerName, phone, address]);
 
+  useEffect(() => {
+  const loadStock = async () => {
+    try {
+      const response = await fetch("/api/products");
+
+      const data = await response.json();
+
+      const currentProduct = data.products?.find(
+        (item: { productId: number }) =>
+          Number(item.productId) === product.id
+      );
+
+      if (currentProduct) {
+        setAvailableStock(
+          Number(currentProduct.displayStock)
+        );
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoadingStock(false);
+    }
+  };
+
+  loadStock();
+}, [product.id]);
+
   const handleOrder = async () => {
-    if (isSubmitting) return;
+  if (isSubmitting) return;
+
+  if (quantity > availableStock) {
+    setErrorMessage(
+      `সর্বোচ্চ ${availableStock} টি অর্ডার করা যাবে`
+    );
+    return;
+  }
+
 
     const cleanName = customerName.trim();
     const cleanPhone = phone.trim();
@@ -76,6 +119,7 @@ export default function OrderForm({
     const orderData = {
       productId: product.id,
       productName: product.name,
+      quantity,
       productSlug: product.slug,
 
       customerName: cleanName,
@@ -105,7 +149,8 @@ export default function OrderForm({
       console.log(result);
 
       if (result.success) {
-        alert("অর্ডার সফল হয়েছে!");
+        setOrderId(result.orderId || "");
+        setOrderSuccess(true);
 
         setCustomerName("");
         setPhone("");
@@ -168,6 +213,44 @@ export default function OrderForm({
       "❌ এই কুপনটি এই পণ্যের জন্য প্রযোজ্য নয়"
     );
   };
+
+  if (orderSuccess) {
+    return (
+      <div className="rounded-2xl border border-green-200 bg-green-50 p-8 text-center space-y-4">
+        <div className="text-6xl">✅</div>
+
+        <h2 className="text-2xl font-bold text-green-700">
+          অর্ডার সফল হয়েছে
+        </h2>
+
+        <p className="text-gray-700">
+          ধন্যবাদ।
+          <br />
+          আমাদের প্রতিনিধি খুব শীঘ্রই আপনার সাথে যোগাযোগ করবে।
+        </p>
+
+        {orderId && (
+          <div className="rounded-xl border bg-white p-4">
+            <p className="text-sm font-medium text-gray-700">
+              Order ID
+            </p>
+
+            <p className="text-lg font-bold text-black break-all">
+              {orderId}
+            </p>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-xl bg-green-600 px-6 py-3 text-white hover:bg-green-700"
+        >
+          আরও পণ্য দেখুন
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -272,12 +355,75 @@ export default function OrderForm({
           </p>
         )}
       </div>
+{loadingStock ? (
+  <div className="rounded-xl bg-gray-100 p-3 text-gray-500">
+    স্টক লোড হচ্ছে...
+  </div>
+) : (
+  <div
+    className={`rounded-xl p-3 font-semibold ${
+      availableStock <= 5
+        ? "bg-red-100 text-red-700"
+        : "bg-green-100 text-green-700"
+    }`}
+  >
+    {availableStock <= 0
+      ? "❌ স্টক শেষ"
+      : availableStock <= 5
+      ? `🚨 শেষ ${availableStock} টি পণ্য বাকি`
+      : `🔥 মাত্র ${availableStock} টি বাকি`}
+  </div>
+)}
+      <div className="space-y-2">
+  <label className="font-medium">
+    পরিমাণ (Quantity)
+  </label>
+
+  <div className="flex items-center gap-3">
+
+    <button
+      type="button"
+      onClick={() =>
+        setQuantity((prev) => Math.max(1, prev - 1))
+      }
+      className="h-10 w-10 rounded-lg border text-lg font-bold"
+    >
+      -
+    </button>
+
+    <div className="min-w-[60px] text-center text-lg font-bold">
+      {quantity}
+    </div>
+
+    <button
+      type="button"
+      onClick={() =>
+  setQuantity((prev) =>
+    Math.min(
+      availableStock || 1,
+      prev + 1
+    )
+  )
+}
+
+      className="h-10 w-10 rounded-lg border text-lg font-bold"
+    >
+      +
+    </button>
+
+  </div>
+</div>   
 
       <div className="rounded-xl bg-gray-100 p-4 space-y-2">
-        <div className="flex justify-between">
-          <span>পণ্যের মূল্য</span>
-          <span>৳ {product.sellingPrice}</span>
-        </div>
+       <div className="flex justify-between">
+  <span>
+    পণ্যের মূল্য ({quantity} টি)
+  </span>
+
+  <span>
+    ৳ {product.sellingPrice * quantity}
+  </span>
+</div>
 
         <div className="flex justify-between">
           <span>ডেলিভারি চার্জ</span>
@@ -302,11 +448,19 @@ export default function OrderForm({
       <Button
         type="button"
         onClick={handleOrder}
-        disabled={isSubmitting}
+disabled={
+  loadingStock ||
+  isSubmitting ||
+  availableStock <= 0
+}
       >
-        {isSubmitting
-          ? "অর্ডার পাঠানো হচ্ছে..."
-          : "🛒 অর্ডার করুন"}
+        {loadingStock
+  ? "স্টক যাচাই হচ্ছে..."
+  : availableStock <= 0
+  ? "❌ স্টক শেষ"
+  : isSubmitting
+  ? "অর্ডার পাঠানো হচ্ছে..."
+  : "🛒 অর্ডার করুন"}
       </Button>
     </div>
   );
