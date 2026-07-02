@@ -16,7 +16,8 @@ export default function Home() {
         <div className="grid gap-6 md:grid-cols-2 mt-10">
           {products.map((product) => (
             <ProductCard
-  key={product.id}
+key={product.id}
+  id={product.id}
   slug={product.slug}
   name={product.name}
   description={product.description}
