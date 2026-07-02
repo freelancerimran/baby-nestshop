@@ -33,6 +33,15 @@ export default function OrderForm({
 
   const [availableStock, setAvailableStock] = useState<number>(0);
   const [loadingStock, setLoadingStock] = useState(true);
+  
+  useEffect(() => {
+  if (
+    availableStock > 0 &&
+    quantity > availableStock
+  ) {
+    setQuantity(availableStock);
+  }
+}, [availableStock, quantity]); 
 
   const total =
   product.sellingPrice * quantity +
@@ -149,6 +158,10 @@ export default function OrderForm({
       console.log(result);
 
       if (result.success) {
+
+ setAvailableStock((prev) =>
+  Math.max(0, prev - quantity)
+);
         setOrderId(result.orderId || "");
         setOrderSuccess(true);
 
