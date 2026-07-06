@@ -11,6 +11,7 @@ import {
   Truck,
   BarChart3,
   Settings,
+  BadgeDollarSign,
 } from "lucide-react";
 
 const menuItems = [
@@ -43,6 +44,11 @@ const menuItems = [
     name: "Analytics",
     href: "/admin/analytics",
     icon: BarChart3,
+  },
+  {
+    name: "Facebook Pixel",
+    href: "/admin/facebook-pixel",
+    icon: BadgeDollarSign,
   },
   {
     name: "Settings",

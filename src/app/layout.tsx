@@ -8,7 +8,7 @@ import "./globals.css";
 
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-
+import FacebookPixel from "@/components/facebook/FacebookPixel";
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-plus-jakarta",
@@ -36,6 +36,7 @@ export default function RootLayout({
       className={`${plusJakarta.variable} ${notoBangla.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <FacebookPixel />
         <Header />
 
         <main className="flex-1">
