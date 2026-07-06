@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-
+import Image from "next/image";
 async function getSettings() {
   const { data } = await supabase
     .from("settings")
@@ -23,11 +23,15 @@ export default async function Footer() {
             <div className="flex items-center gap-3">
 <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-emerald-600">
   {settings?.logo ? (
-    <img
-      src={settings.logo}
-      alt={settings.site_name || "Logo"}
-      className="h-full w-full object-cover"
-    />
+    <div className="relative h-full w-full">
+      <Image
+        src={settings.logo}
+        alt={settings.site_name || "Logo"}
+        fill
+        sizes="48px"
+        className="object-cover"
+      />
+    </div>
   ) : (
     <span className="text-xl text-white">
       📚

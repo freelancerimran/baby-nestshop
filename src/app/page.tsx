@@ -1,7 +1,9 @@
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
+
 import Link from "next/link";
 import ProductCard from "@/components/ProductCard";
 import { supabase } from "@/lib/supabase";
+import Image from "next/image";
 async function getFeaturedProducts() {
   const { data, error } = await supabase
     .from("products")
@@ -70,17 +72,17 @@ async function getNewArrivalProducts() {
   return data || [];
 }
 export default async function Home() {
-const products =
-  await getFeaturedProducts();
-
-const bestSellerProducts =
-  await getBestSellerProducts();
-
-const newArrivalProducts =
-  await getNewArrivalProducts();
-
-const settings =
-  await getSettings();
+const [
+  products,
+  bestSellerProducts,
+  newArrivalProducts,
+  settings,
+] = await Promise.all([
+  getFeaturedProducts(),
+  getBestSellerProducts(),
+  getNewArrivalProducts(),
+  getSettings(),
+]);
 
   return (
     <main className="min-h-screen bg-white">
@@ -133,13 +135,19 @@ const settings =
           {/* Right */}
           <div className="flex justify-center">
 
-            {settings?.hero_image ? (
-              <img
-                src={settings.hero_image}
-                alt="Hero"
-                className="w-full max-w-xl rounded-3xl object-cover shadow-2xl"
-              />
-            ) : (
+{settings?.hero_image ? (
+  <div className="relative w-full max-w-xl overflow-hidden rounded-3xl shadow-2xl">
+    <Image
+      src={settings.hero_image}
+      alt="Hero"
+      width={800}
+      height={800}
+      priority
+      sizes="(max-width:768px) 100vw, 50vw"
+      className="h-auto w-full object-cover"
+    />
+  </div>
+) : (
               <div className="flex h-[450px] w-full max-w-xl items-center justify-center rounded-3xl bg-emerald-100 text-center">
                 <div>
                   <div className="text-7xl">
@@ -197,17 +205,18 @@ const settings =
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {products.map((product) => (
-                <ProductCard
+<ProductCard
   key={product.product_id}
   id={Number(product.product_id)}
   slug={product.slug}
   name={product.product_name}
   price={Number(product.price)}
   image={product.image || ""}
+  stock={Number(product.display_stock)}
   featured={product.featured}
-  bestSeller={product.bestSeller}
-  newArrival={product.newArrival}
-                />
+  bestSeller={product.best_seller}
+  newArrival={product.new_arrival}
+/>
               ))}
             </div>
           )}
@@ -235,17 +244,18 @@ const settings =
 
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {bestSellerProducts.map((product) => (
-        <ProductCard
+<ProductCard
   key={product.product_id}
   id={Number(product.product_id)}
   slug={product.slug}
   name={product.product_name}
   price={Number(product.price)}
   image={product.image || ""}
+  stock={Number(product.display_stock)}
   featured={product.featured}
-  bestSeller={true}
-  newArrival={product.newArrival}
-        />
+  bestSeller={product.best_seller}
+  newArrival={product.new_arrival}
+/>
       ))}
     </div>
 
@@ -272,17 +282,18 @@ const settings =
 
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {newArrivalProducts.map((product) => (
-        <ProductCard
+<ProductCard
   key={product.product_id}
   id={Number(product.product_id)}
   slug={product.slug}
   name={product.product_name}
   price={Number(product.price)}
   image={product.image || ""}
+  stock={Number(product.display_stock)}
   featured={product.featured}
-  bestSeller={product.bestSeller}
-  newArrival={true}
-        />
+  bestSeller={product.best_seller}
+  newArrival={product.new_arrival}
+/>
       ))}
     </div>
 

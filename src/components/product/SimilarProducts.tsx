@@ -9,6 +9,7 @@ type Product = {
   price: number;
   slug: string;
   image: string;
+  displayStock: number;
 };
 
 type Props = {
@@ -84,6 +85,7 @@ export default function SimilarProducts({
             name={product.productName}
             price={product.price}
             image={product.image || ""}
+            stock={product.displayStock}
           />
         ))}
 

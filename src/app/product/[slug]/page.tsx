@@ -1,3 +1,5 @@
+export const revalidate = 300;
+
 import { notFound } from "next/navigation";
 import Container from "@/components/ui/Container";
 

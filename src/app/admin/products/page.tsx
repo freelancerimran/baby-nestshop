@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AdminProduct } from "@/types/admin-product";
 import ProductsPageClient from "@/components/admin/ProductsPageClient";
 

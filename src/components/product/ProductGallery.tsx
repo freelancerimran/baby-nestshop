@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 type ProductGalleryProps = {
   image: string;
@@ -19,7 +20,6 @@ export default function ProductGallery({
   galleryImage4,
   name,
 }: ProductGalleryProps) {
-
   const images = [
     image,
     galleryImage1,
@@ -28,23 +28,26 @@ export default function ProductGallery({
     galleryImage4,
   ].filter(Boolean) as string[];
 
-  const [selectedImage, setSelectedImage] =
-    useState(images[0] || "");
+  const [selectedImage, setSelectedImage] = useState(
+    images[0] || ""
+  );
 
   return (
     <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
-
       <div className="overflow-hidden rounded-2xl border border-gray-100">
-
         {selectedImage ? (
-          <img
-            src={selectedImage}
-            alt={name}
-            className="aspect-square w-full object-cover"
-          />
+          <div className="relative aspect-square w-full">
+            <Image
+              src={selectedImage}
+              alt={name}
+              fill
+              priority
+              sizes="(max-width: 768px) 100vw, 50vw"
+              className="object-cover"
+            />
+          </div>
         ) : (
           <div className="aspect-square flex flex-col items-center justify-center bg-gradient-to-br from-teal-50 to-emerald-50">
-
             <div className="mb-4 text-7xl">
               📚
             </div>
@@ -56,44 +59,35 @@ export default function ProductGallery({
             <p className="mt-3 text-gray-500">
               No Image Available
             </p>
-
           </div>
         )}
-
       </div>
 
       {images.length > 1 && (
-
         <div className="mt-4 grid grid-cols-5 gap-3">
-
           {images.map((img, index) => (
-
             <button
               key={index}
-              onClick={() =>
-                setSelectedImage(img)
-              }
+              onClick={() => setSelectedImage(img)}
               className={`overflow-hidden rounded-xl border-2 transition-all ${
                 selectedImage === img
                   ? "border-teal-500"
                   : "border-gray-200"
               }`}
             >
-
-              <img
-                src={img}
-                alt={`${name}-${index}`}
-                className="aspect-square w-full object-cover"
-              />
-
+              <div className="relative aspect-square w-full">
+                <Image
+                  src={img}
+                  alt={`${name}-${index + 1}`}
+                  fill
+                  sizes="100px"
+                  className="object-cover"
+                />
+              </div>
             </button>
-
           ))}
-
         </div>
-
       )}
-
     </div>
   );
 }

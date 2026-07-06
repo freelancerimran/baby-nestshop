@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import Image from "next/image";
 
 type ProductCardProps = {
   id: number;
@@ -9,81 +9,75 @@ type ProductCardProps = {
   name: string;
   price: number;
   image: string;
-    featured?: boolean;
+  stock?: number;
+  featured?: boolean;
   bestSeller?: boolean;
   newArrival?: boolean;
 };
 
 export default function ProductCard({
-  id,
   slug,
   name,
   price,
   image,
+  stock = 0,
   featured,
   bestSeller,
   newArrival,
 }: ProductCardProps) {
-  const [stock, setStock] = useState<number>(0);
-
-  useEffect(() => {
-    const loadStock = async () => {
-      try {
-        const response = await fetch("/api/products");
-        const data = await response.json();
-
-        const currentProduct = data.products?.find(
-          (item: { productId: number }) =>
-            Number(item.productId) === id
-        );
-
-        if (currentProduct) {
-          setStock(
-            Number(currentProduct.displayStock)
-          );
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    loadStock();
-  }, [id]);
+  const validImage =
+    typeof image === "string" &&
+    image.trim() !== "" &&
+    (image.startsWith("http://") ||
+      image.startsWith("https://") ||
+      image.startsWith("/"));
 
   return (
     <Link href={`/product/${slug}`}>
-      <div className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg cursor-pointer">
+      <div className="h-full cursor-pointer overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
 
-{image && (
-  <div className="relative mb-4 h-56 overflow-hidden rounded-xl bg-gray-100">
+        {validImage ? (
+          <div className="relative mb-4 h-56 overflow-hidden rounded-xl bg-gray-100">
 
-    {featured && (
-      <div className="absolute left-2 top-2 z-10 rounded-lg bg-yellow-500 px-2 py-1 text-xs font-bold text-white">
-        ⭐ Featured
-      </div>
-    )}
+            {featured && (
+              <div className="absolute left-2 top-2 z-10 rounded-lg bg-yellow-500 px-2 py-1 text-xs font-bold text-white">
+                ⭐ Featured
+              </div>
+            )}
 
-    {bestSeller && (
-      <div className="absolute right-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-xs font-bold text-white">
-        🔥 Best Seller
-      </div>
-    )}
+            {bestSeller && (
+              <div className="absolute right-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-xs font-bold text-white">
+                🔥 Best Seller
+              </div>
+            )}
 
-    {newArrival && (
-      <div className="absolute left-2 bottom-2 z-10 rounded-lg bg-emerald-500 px-2 py-1 text-xs font-bold text-white">
-        ✨ New Arrival
-      </div>
-    )}
+            {newArrival && (
+              <div className="absolute left-2 bottom-2 z-10 rounded-lg bg-emerald-500 px-2 py-1 text-xs font-bold text-white">
+                ✨ New Arrival
+              </div>
+            )}
 
-    <img
-      src={image}
-      alt={name}
-      className="h-56 w-full object-cover"
-    />
-  </div>
-)}
+            <Image
+              src={image}
+              alt={name}
+              fill
+              sizes="(max-width:768px) 100vw, (max-width:1200px) 50vw, 25vw"
+              className="object-cover"
+            />
+          </div>
+        ) : (
+          <div className="mb-4 flex h-56 items-center justify-center rounded-xl bg-gray-100">
+            <div className="text-center">
+              <div className="text-5xl">📚</div>
 
-        {stock > 0 && (
+              <p className="mt-2 text-sm text-gray-500">
+                No Image
+              </p>
+            </div>
+          </div>
+        )}
+
+        {stock > 0 ? (
           <div
             className={`mb-3 inline-block rounded-lg px-3 py-1 text-sm font-semibold ${
               stock <= 5
@@ -95,15 +89,13 @@ export default function ProductCard({
               ? `🚨 শেষ ${stock} টি বাকি`
               : `🔥 ${stock} টি বাকি`}
           </div>
-        )}
-
-        {stock <= 0 && (
+        ) : (
           <div className="mb-3 inline-block rounded-lg bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-600">
             ❌ স্টক শেষ
           </div>
         )}
 
-        <h2 className="text-lg font-semibold line-clamp-2 text-gray-900">
+        <h2 className="line-clamp-2 text-lg font-semibold text-gray-900">
           {name}
         </h2>
 

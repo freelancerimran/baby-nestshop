@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import Image from "next/image";
 import {
   Menu,
   X,
@@ -59,11 +60,16 @@ export default function HeaderClient({
             className="flex items-center gap-3"
           >
             {logo ? (
-              <img
-                src={logo}
-                alt={siteName}
-                className="h-12 w-auto object-contain"
-              />
+<div className="relative h-12 w-12">
+  <Image
+    src={logo}
+    alt={siteName}
+    fill
+    priority
+    sizes="48px"
+    className="object-contain"
+  />
+</div>
             ) : (
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-xl text-white">
                 📚
@@ -182,11 +188,15 @@ export default function HeaderClient({
   <div className="flex min-w-0 flex-1 items-center gap-3">
 
     {logo ? (
-      <img
-        src={logo}
-        alt={siteName}
-        className="h-12 w-12 shrink-0 rounded-xl border border-gray-100 object-cover"
-      />
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-gray-100">
+  <Image
+    src={logo}
+    alt={siteName}
+    fill
+    sizes="48px"
+    className="object-cover"
+  />
+</div>
     ) : (
       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-xl text-white">
         📚
