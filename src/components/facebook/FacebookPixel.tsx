@@ -4,17 +4,17 @@ import { useEffect } from "react";
 
 declare global {
   interface Window {
-    fbq?: (...args: any[]) => void;
-    _fbq?: (...args: any[]) => void;
+    fbq?: (...args: unknown[]) => void;
+    _fbq?: (...args: unknown[]) => void;
   }
 }
 
 export default function FacebookPixel() {
   useEffect(() => {
-    initializePixel();
+    loadPixel();
   }, []);
 
-  async function initializePixel() {
+  async function loadPixel() {
     try {
       const response = await fetch(
         "/api/admin/facebook-pixel"
@@ -28,11 +28,11 @@ export default function FacebookPixel() {
 
       if (!pixelId) return;
 
-      if (window.fbq) {
-        window.fbq(
-          "track",
-          "PageView"
-        );
+      if (
+        document.getElementById(
+          "facebook-pixel-script"
+        )
+      ) {
         return;
       }
 
@@ -41,43 +41,33 @@ export default function FacebookPixel() {
           "script"
         );
 
+      script.id =
+        "facebook-pixel-script";
+
       script.async = true;
 
       script.src =
         "https://connect.facebook.net/en_US/fbevents.js";
 
-      document.head.appendChild(
-        script
-      );
+      script.onload = () => {
+        if (
+          typeof window.fbq ===
+          "function"
+        ) {
+          window.fbq(
+            "init",
+            pixelId
+          );
 
-      window.fbq = function (
-        ...args: any[]
-      ) {
-        (
-          window.fbq as any
-        ).queue.push(args);
+          window.fbq(
+            "track",
+            "PageView"
+          );
+        }
       };
 
-      (
-        window.fbq as any
-      ).queue = [];
-
-      (
-        window.fbq as any
-      ).loaded = true;
-
-      (
-        window.fbq as any
-      ).version = "2.0";
-
-      window.fbq(
-        "init",
-        pixelId
-      );
-
-      window.fbq(
-        "track",
-        "PageView"
+      document.head.appendChild(
+        script
       );
     } catch (error) {
       console.error(

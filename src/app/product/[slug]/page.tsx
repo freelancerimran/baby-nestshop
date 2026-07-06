@@ -7,6 +7,7 @@ import ProductGallery from "@/components/product/ProductGallery";
 import ProductCheckout from "@/components/product/ProductCheckout";
 import ProductDescription from "@/components/product/ProductDescription";
 import SimilarProducts from "@/components/product/SimilarProducts";
+import ViewContentPixel from "@/components/facebook/ViewContentPixel";
 
 import { supabase } from "@/lib/supabase";
 
@@ -78,6 +79,12 @@ galleryImage4:
 
   return (
     <main className="min-h-screen bg-gray-50 py-10 text-gray-900">
+      
+         <ViewContentPixel
+      productId={formattedProduct.id}
+      productName={formattedProduct.name}
+      price={formattedProduct.sellingPrice}
+    /> 
       <Container>
 
         <div className="grid items-start gap-10 lg:grid-cols-[1.2fr_0.8fr]">
