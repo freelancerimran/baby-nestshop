@@ -133,7 +133,28 @@ const [deliveryArea, setDeliveryArea] = useState("dhaka");
 
     setErrorMessage("");
     setIsSubmitting(true);
-
+    
+    if (
+  typeof window !== "undefined" &&
+  window.fbq
+) {
+  window.fbq(
+    "track",
+    "InitiateCheckout",
+    {
+      content_ids: [
+        String(product.id),
+      ],
+      content_name:
+        product.name,
+      content_type:
+        "product",
+      currency: "BDT",
+      value: total,
+      num_items: quantity,
+    }
+  );
+}
     const orderData = {
       productId: product.id,
       productName: product.name,
@@ -171,6 +192,30 @@ const [deliveryArea, setDeliveryArea] = useState("dhaka");
       console.log(result);
 
       if (result.success) {
+
+        if (
+  typeof window !== "undefined" &&
+  window.fbq
+) {
+  window.fbq(
+    "track",
+    "Purchase",
+    {
+      content_ids: [
+        String(product.id),
+      ],
+      content_name:
+        product.name,
+      content_type:
+        "product",
+      currency: "BDT",
+      value: total,
+      num_items: quantity,
+      order_id:
+        result.orderId,
+    }
+  );
+}
 
  setAvailableStock((prev) =>
   Math.max(0, prev - quantity)

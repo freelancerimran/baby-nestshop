@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import crypto from "crypto";
 
 export async function POST(
   request: NextRequest
@@ -82,6 +83,32 @@ console.log("PRODUCT ERROR:", productError);
 
     const orderId =
       "BN-" + Date.now();
+    const pixelId =
+  process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID;
+
+const accessToken =
+  process.env.FACEBOOK_ACCESS_TOKEN;
+
+const clientIp =
+  request.headers.get(
+    "x-forwarded-for"
+  ) || "";
+
+const userAgent =
+  request.headers.get(
+    "user-agent"
+  ) || "";
+
+const hashedPhone =
+  crypto
+    .createHash("sha256")
+    .update(
+      String(body.phone || "")
+        .replace(/\D/g, "")
+        .trim()
+    )
+    .digest("hex");
+
 
     // Create Order
 
@@ -213,6 +240,89 @@ address:
         "product_id",
         String(body.productId)
       );
+
+try {
+  if (
+    pixelId &&
+    accessToken
+  ) {
+    await fetch(
+      `https://graph.facebook.com/v23.0/${pixelId}/events?access_token=${accessToken}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          data: [
+            {
+              event_name:
+                "Purchase",
+
+              event_time:
+                Math.floor(
+                  Date.now() /
+                    1000
+                ),
+
+              action_source:
+                "website",
+
+              event_source_url:
+                "https://www.baby-nestshop.com",
+
+              event_id:
+                orderId,
+
+              user_data: {
+                ph: [
+                  hashedPhone,
+                ],
+
+                client_ip_address:
+                  clientIp,
+
+                client_user_agent:
+                  userAgent,
+              },
+
+              custom_data: {
+                currency:
+                  "BDT",
+
+                value:
+                  Number(
+                    body.total
+                  ),
+
+                content_ids: [
+                  String(
+                    body.productId
+                  ),
+                ],
+
+                content_name:
+                  body.productName,
+
+                content_type:
+                  "product",
+
+                num_items:
+                  quantity,
+              },
+            },
+          ],
+        }),
+      }
+    );
+  }
+} catch (error) {
+  console.error(
+    "CAPI ERROR:",
+    error
+  );
+}
 
     if (stockError) {
       return NextResponse.json(

@@ -1,81 +1,35 @@
 "use client";
 
-import { useEffect } from "react";
-
-declare global {
-  interface Window {
-    fbq?: (...args: unknown[]) => void;
-    _fbq?: (...args: unknown[]) => void;
-  }
-}
+import Script from "next/script";
 
 export default function FacebookPixel() {
-  useEffect(() => {
-    loadPixel();
-  }, []);
+  return (
+    <>
+      <Script
+        id="facebook-pixel"
+        strategy="afterInteractive"
+      >
+        {`
+          !function(f,b,e,v,n,t,s)
+          {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+          n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+          if(!f._fbq)f._fbq=n;
+          n.push=n;
+          n.loaded=!0;
+          n.version='2.0';
+          n.queue=[];
+          t=b.createElement(e);
+          t.async=!0;
+          t.src=v;
+          s=b.getElementsByTagName(e)[0];
+          s.parentNode.insertBefore(t,s)}
+          (window, document,'script',
+          'https://connect.facebook.net/en_US/fbevents.js');
 
-  async function loadPixel() {
-    try {
-      const response = await fetch(
-        "/api/admin/facebook-pixel"
-      );
-
-      const settings =
-        await response.json();
-
-      const pixelId =
-        settings.facebook_pixel_id;
-
-      if (!pixelId) return;
-
-      if (
-        document.getElementById(
-          "facebook-pixel-script"
-        )
-      ) {
-        return;
-      }
-
-      const script =
-        document.createElement(
-          "script"
-        );
-
-      script.id =
-        "facebook-pixel-script";
-
-      script.async = true;
-
-      script.src =
-        "https://connect.facebook.net/en_US/fbevents.js";
-
-      script.onload = () => {
-        if (
-          typeof window.fbq ===
-          "function"
-        ) {
-          window.fbq(
-            "init",
-            pixelId
-          );
-
-          window.fbq(
-            "track",
-            "PageView"
-          );
-        }
-      };
-
-      document.head.appendChild(
-        script
-      );
-    } catch (error) {
-      console.error(
-        "Facebook Pixel Error:",
-        error
-      );
-    }
-  }
-
-  return null;
+          fbq('init', '827876226389954');
+          fbq('track', 'PageView');
+        `}
+      </Script>
+    </>
+  );
 }
