@@ -9,8 +9,8 @@ export default function ProductsTable({
 }: {
   products: AdminProduct[];
 }) {
-      const [selectedProduct, setSelectedProduct] =
-    useState<AdminProduct | null>(null); 
+  const [selectedProduct, setSelectedProduct] =
+    useState<AdminProduct | null>(null);
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
@@ -38,8 +38,32 @@ export default function ProductsTable({
                 {product.productId}
               </td>
 
-              <td className="p-4 font-medium">
-                {product.productName}
+              <td className="p-4">
+                <div className="font-medium">
+                  {product.productName}
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+
+                  {product.featured && (
+                    <span className="rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-700">
+                      ⭐ Featured
+                    </span>
+                  )}
+
+                  {product.bestSeller && (
+                    <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+                      🔥 Best Seller
+                    </span>
+                  )}
+
+                  {product.newArrival && (
+                    <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                      ✨ New Arrival
+                    </span>
+                  )}
+
+                </div>
               </td>
 
               <td className="p-4">
@@ -72,26 +96,27 @@ export default function ProductsTable({
 
               <td className="p-4">
                 <button
-  className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-  onClick={() =>
-    setSelectedProduct(product)
-  }
->
-  Edit
-</button>
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                  onClick={() =>
+                    setSelectedProduct(product)
+                  }
+                >
+                  Edit
+                </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
       {selectedProduct && (
-  <ProductEditModal
-    product={selectedProduct}
-    onClose={() =>
-      setSelectedProduct(null)
-    }
-  />
-)}
+        <ProductEditModal
+          product={selectedProduct}
+          onClose={() =>
+            setSelectedProduct(null)
+          }
+        />
+      )}
     </div>
   );
 }

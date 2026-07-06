@@ -1,8 +1,9 @@
 import OrdersTable from "@/components/admin/OrdersTable";
+import SyncAllCourierButton from "@/components/admin/SyncAllCourierButton";
 
 async function getOrders() {
   const response = await fetch(
-  "http://localhost:3000/api/admin/orders",
+  `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/orders`,
   {
     cache: "no-store",
   }
@@ -18,11 +19,13 @@ export default async function OrdersPage() {
 
   return (
     <div className="p-6">
-      <h1 className="mb-6 text-3xl font-bold">
-        Orders
-      </h1>
+<h1 className="mb-4 text-3xl font-bold">
+  Orders
+</h1>
 
-      <OrdersTable orders={orders} />
+<SyncAllCourierButton />
+
+<OrdersTable orders={orders} />
     </div>
   );
 }

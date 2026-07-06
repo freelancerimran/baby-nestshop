@@ -5,7 +5,6 @@ export async function POST(
   req: NextRequest
 ) {
   try {
-
     const body = await req.json();
 
     const { error } = await supabase
@@ -26,6 +25,9 @@ export async function POST(
         price:
           body.price,
 
+        regular_price:
+          body.regularPrice,
+
         slug:
           body.slug,
 
@@ -34,6 +36,27 @@ export async function POST(
 
         image:
           body.image,
+          gallery_image_1:
+  body.galleryImage1,
+
+gallery_image_2:
+  body.galleryImage2,
+
+gallery_image_3:
+  body.galleryImage3,
+
+gallery_image_4:
+  body.galleryImage4,
+
+featured:
+  body.featured || false,
+
+best_seller:
+  body.bestSeller || false,
+
+new_arrival:
+  body.newArrival || false,
+  
       })
       .eq(
         "product_id",
@@ -41,7 +64,6 @@ export async function POST(
       );
 
     if (error) {
-
       return NextResponse.json(
         {
           success: false,
@@ -59,7 +81,6 @@ export async function POST(
     });
 
   } catch (error) {
-
     return NextResponse.json(
       {
         success: false,

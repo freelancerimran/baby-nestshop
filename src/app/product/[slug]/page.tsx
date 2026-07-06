@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
-import { products } from "@/data/products";
 import Container from "@/components/ui/Container";
-import OrderForm from "@/components/OrderForm";
+
+import ProductGallery from "@/components/product/ProductGallery";
+import ProductCheckout from "@/components/product/ProductCheckout";
+import ProductDescription from "@/components/product/ProductDescription";
+import SimilarProducts from "@/components/product/SimilarProducts";
+
+import { supabase } from "@/lib/supabase";
 
 type Props = {
   params: Promise<{
@@ -9,52 +14,104 @@ type Props = {
   }>;
 };
 
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage({
+  params,
+}: Props) {
   const { slug } = await params;
 
-  const product = products.find((item) => item.slug === slug);
+  const { data: product } = await supabase
+    .from("products")
+    .select("*")
+    .eq("slug", slug)
+    .single();
 
   if (!product) {
     notFound();
   }
 
+  const formattedProduct = {
+    id: Number(product.product_id),
+
+    slug: product.slug,
+
+    name: product.product_name,
+
+    shortDescription:
+      product.short_description || "",
+
+    description:
+      product.description || "",
+
+    regularPrice:
+  Number(product.regular_price || 0),
+
+    sellingPrice:
+      Number(product.price),
+
+    deliveryInsideDhaka:
+      Number(product.delivery_inside_dhaka),
+
+    deliveryOutsideDhaka:
+      Number(product.delivery_outside_dhaka),
+
+    image: product.image || "",
+
+    galleryImage1:
+  product.gallery_image_1 || "",
+
+galleryImage2:
+  product.gallery_image_2 || "",
+
+galleryImage3:
+  product.gallery_image_3 || "",
+
+galleryImage4:
+  product.gallery_image_4 || "",  
+
+    status: product.status,
+
+    displayStock:
+      Number(product.display_stock),
+  };
+
   return (
-  <main className="min-h-screen bg-gray-50 py-10">
-    <Container>
-      <div className="grid gap-10 lg:grid-cols-2">
+    <main className="min-h-screen bg-gray-50 py-10 text-gray-900">
+      <Container>
 
-        {/* Left Side */}
-        <div>
-          <div className="aspect-square rounded-2xl border bg-white flex items-center justify-center">
-            <span className="text-gray-400">
-              Product Image
-            </span>
-          </div>
-        </div>
+        <div className="grid items-start gap-10 lg:grid-cols-[1.2fr_0.8fr]">
 
-        {/* Right Side */}
-        <div>
+<ProductGallery
+  image={formattedProduct.image}
+  galleryImage1={
+    formattedProduct.galleryImage1
+  }
+  galleryImage2={
+    formattedProduct.galleryImage2
+  }
+  galleryImage3={
+    formattedProduct.galleryImage3
+  }
+  galleryImage4={
+    formattedProduct.galleryImage4
+  }
+  name={formattedProduct.name}
+/>
 
-          <h1 className="text-4xl font-bold">
-            {product.name}
-          </h1>
-
-          <p className="mt-4 text-gray-600">
-            {product.description}
-          </p>
-
-          <p className="mt-6 text-3xl font-bold">
-            ৳ {product.sellingPrice}
-          </p>
-
-          <div className="mt-8 rounded-2xl border bg-white p-6">
-            <OrderForm product={product} />
-          </div>
+          <ProductCheckout
+            product={formattedProduct}
+          />
 
         </div>
 
-      </div>
-    </Container>
-  </main>
-);
+        <ProductDescription
+          description={formattedProduct.description}
+        />
+
+        <SimilarProducts
+  currentSlug={formattedProduct.slug}
+/>
+
+      </Container>
+    </main>
+  );
 }

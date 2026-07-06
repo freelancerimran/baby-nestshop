@@ -22,18 +22,55 @@ export async function GET() {
 
     const products = (data || []).map(
       (product) => ({
-        productId: product.product_id,
-        productName: product.product_name,
+    productId: product.product_id,
 
-        realStock: product.real_stock,
-        displayStock: product.display_stock,
+    productName:
+      product.product_name,
 
-        status: product.status,
-        price: product.price,
+    realStock:
+      product.real_stock,
 
-        slug: product.slug,
-        description: product.description,
-        image: product.image,
+    displayStock:
+      product.display_stock,
+
+    status:
+      product.status,
+
+    price:
+      product.price,
+
+    regularPrice:
+      product.regular_price || 0,
+
+    slug:
+      product.slug,
+
+    description:
+      product.description,
+
+    image:
+      product.image || "",
+
+    galleryImage1:
+      product.gallery_image_1 || "",
+
+    galleryImage2:
+      product.gallery_image_2 || "",
+
+    galleryImage3:
+      product.gallery_image_3 || "",
+
+    galleryImage4:
+      product.gallery_image_4 || "",
+      featured:
+  product.featured || false,
+
+bestSeller:
+  product.best_seller || false,
+
+newArrival:
+  product.new_arrival || false,
+      
       })
     );
 

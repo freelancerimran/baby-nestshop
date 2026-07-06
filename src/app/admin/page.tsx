@@ -1,16 +1,70 @@
 async function getDashboardData() {
-  const response = await fetch(
-    "http://localhost:3000/api/admin/dashboard",
-    {
-      cache: "no-store",
-    }
-  );
+  const [ordersResponse, productsResponse] =
+    await Promise.all([
+      fetch(
+        `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/orders`,
+        {
+          cache: "no-store",
+        }
+      ),
 
-  return response.json();
+      fetch(
+        `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/products`,
+        {
+          cache: "no-store",
+        }
+      ),
+    ]);
+
+  const ordersData =
+    await ordersResponse.json();
+
+  const productsData =
+    await productsResponse.json();
+
+  const orders =
+    ordersData.orders || [];
+
+  const products =
+    productsData.products || [];
+
+  const totalOrders =
+    orders.length;
+
+  const pendingOrders =
+    orders.filter(
+      (order: any) =>
+        order.status ===
+        "Pending"
+    ).length;
+
+  const totalRevenue =
+    orders.reduce(
+      (
+        sum: number,
+        order: any
+      ) =>
+        sum +
+        Number(
+          order.total || 0
+        ),
+      0
+    );
+
+  const totalProducts =
+    products.length;
+
+  return {
+    totalOrders,
+    pendingOrders,
+    totalRevenue,
+    totalProducts,
+  };
 }
 
 export default async function AdminPage() {
-  const data = await getDashboardData();
+  const data =
+    await getDashboardData();
 
   const cards = [
     {
@@ -23,7 +77,7 @@ export default async function AdminPage() {
     },
     {
       title: "Revenue",
-      value: `৳ ${data.totalRevenue}`,
+      value: `৳ ${data.totalRevenue.toLocaleString()}`,
     },
     {
       title: "Products",

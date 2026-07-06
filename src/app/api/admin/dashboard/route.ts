@@ -1,38 +1,78 @@
 import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    const response = await fetch(
-      "http://localhost:3000/api/admin/orders",
-      {
-        cache: "no-store",
-      }
-    );
+    // Orders
+    const { data: orders, error: ordersError } =
+      await supabase
+        .from("orders")
+        .select("*");
 
-    const data = await response.json();
+    if (ordersError) {
+      throw ordersError;
+    }
 
-    const orders = data.orders || [];
+    // Products
+    const { data: products, error: productsError } =
+      await supabase
+        .from("products")
+        .select("*");
 
-    const totalOrders = orders.length;
+    if (productsError) {
+      throw productsError;
+    }
 
-    const pendingOrders = orders.filter(
-      (order: any) => order.status === "Pending"
-    ).length;
+    const totalOrders = orders?.length || 0;
 
-    const totalRevenue = orders.reduce(
-      (sum: number, order: any) =>
-        sum + Number(order.total || 0),
-      0
-    );
+    const pendingOrders =
+      orders?.filter(
+        (order) =>
+          order.status?.toLowerCase() ===
+          "pending"
+      ).length || 0;
+
+    const deliveredOrders =
+      orders?.filter(
+        (order) =>
+          order.status?.toLowerCase() ===
+          "delivered"
+      ).length || 0;
+
+    const totalRevenue =
+      orders?.reduce(
+        (sum, order) =>
+          sum + Number(order.total || 0),
+        0
+      ) || 0;
+
+    const totalProducts =
+      products?.length || 0;
+
+    const lowStockProducts =
+      products?.filter(
+        (product) =>
+          Number(product.real_stock) <= 5
+      ).length || 0;
 
     return NextResponse.json({
       success: true,
+
       totalOrders,
+
       pendingOrders,
+
+      deliveredOrders,
+
       totalRevenue,
-      totalProducts: 5,
+
+      totalProducts,
+
+      lowStockProducts,
     });
+
   } catch (error) {
+
     console.error(error);
 
     return NextResponse.json(

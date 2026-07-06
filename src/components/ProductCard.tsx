@@ -7,16 +7,22 @@ type ProductCardProps = {
   id: number;
   slug: string;
   name: string;
-  description: string;
   price: number;
+  image: string;
+    featured?: boolean;
+  bestSeller?: boolean;
+  newArrival?: boolean;
 };
 
 export default function ProductCard({
   id,
   slug,
   name,
-  description,
   price,
+  image,
+  featured,
+  bestSeller,
+  newArrival,
 }: ProductCardProps) {
   const [stock, setStock] = useState<number>(0);
 
@@ -32,7 +38,9 @@ export default function ProductCard({
         );
 
         if (currentProduct) {
-          setStock(Number(currentProduct.displayStock));
+          setStock(
+            Number(currentProduct.displayStock)
+          );
         }
       } catch (error) {
         console.error(error);
@@ -44,7 +52,36 @@ export default function ProductCard({
 
   return (
     <Link href={`/product/${slug}`}>
-      <div className="border rounded-xl p-6 shadow-sm hover:shadow-lg transition cursor-pointer">
+      <div className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg cursor-pointer">
+
+{image && (
+  <div className="relative mb-4 h-56 overflow-hidden rounded-xl bg-gray-100">
+
+    {featured && (
+      <div className="absolute left-2 top-2 z-10 rounded-lg bg-yellow-500 px-2 py-1 text-xs font-bold text-white">
+        ⭐ Featured
+      </div>
+    )}
+
+    {bestSeller && (
+      <div className="absolute right-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-xs font-bold text-white">
+        🔥 Best Seller
+      </div>
+    )}
+
+    {newArrival && (
+      <div className="absolute left-2 bottom-2 z-10 rounded-lg bg-emerald-500 px-2 py-1 text-xs font-bold text-white">
+        ✨ New Arrival
+      </div>
+    )}
+
+    <img
+      src={image}
+      alt={name}
+      className="h-56 w-full object-cover"
+    />
+  </div>
+)}
 
         {stock > 0 && (
           <div
@@ -66,17 +103,20 @@ export default function ProductCard({
           </div>
         )}
 
-        <h2 className="text-xl font-semibold">
+        <h2 className="text-lg font-semibold line-clamp-2 text-gray-900">
           {name}
         </h2>
 
-        <p className="mt-2 text-gray-600">
-          {description}
-        </p>
-
-        <p className="mt-4 font-bold">
+        <p className="mt-2 text-2xl font-bold text-emerald-600">
           ৳ {price}
         </p>
+
+        <div className="mt-4">
+          <span className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">
+            View Product
+          </span>
+        </div>
+
       </div>
     </Link>
   );

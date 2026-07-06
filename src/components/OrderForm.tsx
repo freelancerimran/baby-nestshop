@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Button from "@/components/ui/Button";
 import { Product } from "@/types/product";
 import { coupons } from "@/data/coupons";
+import { districts } from "@/data/districts";
 
 type OrderFormProps = {
   product: Product;
@@ -19,6 +20,7 @@ export default function OrderForm({
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [note, setNote] = useState("");
 
   const [couponCode, setCouponCode] = useState("");
   const [discount, setDiscount] = useState(0);
@@ -30,6 +32,8 @@ export default function OrderForm({
   const [orderId, setOrderId] = useState("");
 
   const [quantity, setQuantity] = useState(1);
+ const [district, setDistrict] = useState("");
+const [deliveryArea, setDeliveryArea] = useState("dhaka");
 
   const [availableStock, setAvailableStock] = useState<number>(0);
   const [loadingStock, setLoadingStock] = useState(true);
@@ -121,6 +125,11 @@ export default function OrderForm({
       setErrorMessage("সম্পূর্ণ ঠিকানা লিখুন");
       return;
     }
+    
+    if (!district) {
+  setErrorMessage("জেলা নির্বাচন করুন");
+  return;
+}
 
     setErrorMessage("");
     setIsSubmitting(true);
@@ -134,6 +143,10 @@ export default function OrderForm({
       customerName: cleanName,
       phone: cleanPhone,
       address: cleanAddress,
+
+      district,
+      note,
+      deliveryArea,
 
       deliveryCharge,
       discount,
@@ -227,254 +240,232 @@ export default function OrderForm({
     );
   };
 
-  if (orderSuccess) {
-    return (
-      <div className="rounded-2xl border border-green-200 bg-green-50 p-8 text-center space-y-4">
-        <div className="text-6xl">✅</div>
+ if (orderSuccess) {
+  return (
+    <div className="rounded-2xl border border-green-200 bg-green-50 p-6 text-center">
+      <h3 className="text-2xl font-bold text-green-700">
+        🎉 অর্ডার সফল হয়েছে
+      </h3>
 
-        <h2 className="text-2xl font-bold text-green-700">
-          অর্ডার সফল হয়েছে
-        </h2>
+      <p className="mt-2 text-gray-700">
+        আপনার অর্ডার গ্রহণ করা হয়েছে।
+      </p>
 
-        <p className="text-gray-700">
-          ধন্যবাদ।
-          <br />
-          আমাদের প্রতিনিধি খুব শীঘ্রই আপনার সাথে যোগাযোগ করবে।
+      {orderId && (
+        <p className="mt-2 font-semibold text-gray-900">
+          Order ID: {orderId}
         </p>
+      )}
+    </div>
+  );
+}
 
-        {orderId && (
-          <div className="rounded-xl border bg-white p-4">
-            <p className="text-sm font-medium text-gray-700">
-              Order ID
-            </p>
+return (
+  <div className="space-y-4">
 
-            <p className="text-lg font-bold text-black break-all">
-              {orderId}
-            </p>
-          </div>
-        )}
+    <h2 className="text-xl font-bold text-gray-900">
+      অর্ডার করুন
+    </h2>
+
+    {errorMessage && (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">
+        {errorMessage}
+      </div>
+    )}
+
+    {/* Quantity */}
+    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+
+      <label className="mb-2 block text-sm font-medium text-gray-700">
+        পরিমাণ (Quantity)
+      </label>
+
+      <div className="flex items-center gap-3">
 
         <button
           type="button"
-          onClick={() => window.location.reload()}
-          className="rounded-xl bg-green-600 px-6 py-3 text-white hover:bg-green-700"
+          onClick={() =>
+            setQuantity((prev) => Math.max(1, prev - 1))
+          }
+          className="flex h-10 w-10 items-center justify-center rounded-xl border"
         >
-          আরও পণ্য দেখুন
+          -
         </button>
-      </div>
-    );
-  }
 
-  return (
-    <div className="space-y-5">
-      <h2 className="text-2xl font-bold">
-        অর্ডার করুন
-      </h2>
-
-      {errorMessage && (
-        <div className="rounded-xl bg-red-100 border border-red-300 p-3 text-red-700">
-          {errorMessage}
+        <div className="min-w-[70px] text-center font-bold">
+          {quantity}
         </div>
-      )}
+
+        <button
+          type="button"
+          onClick={() =>
+            setQuantity((prev) =>
+              Math.min(availableStock || 1, prev + 1)
+            )
+          }
+          className="flex h-10 w-10 items-center justify-center rounded-xl border"
+        >
+          +
+        </button>
+
+      </div>
+    </div>
+
+    <input
+      type="text"
+      value={customerName}
+      onChange={(e) => setCustomerName(e.target.value)}
+      placeholder="আপনার নাম"
+      className="w-full rounded-xl border px-3 py-2"
+    />
+
+    <input
+      type="tel"
+      value={phone}
+      onChange={(e) => setPhone(e.target.value)}
+      placeholder="মোবাইল নম্বর"
+      className="w-full rounded-xl border px-3 py-2"
+    />
+    <select
+  value={district}
+  onChange={(e) =>
+    setDistrict(e.target.value)
+  }
+  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-gray-900"
+>
+  <option value="">
+    জেলা নির্বাচন করুন
+  </option>
+
+  {districts.map((districtName) => (
+    <option
+      key={districtName}
+      value={districtName}
+    >
+      {districtName}
+    </option>
+  ))}
+</select>
+    <textarea
+      value={address}
+      onChange={(e) => setAddress(e.target.value)}
+      placeholder="বাড়ি/ফ্ল্যাট নম্বর, বিল্ডিং, রোড, গ্রাম, এলাকা, উপজেলা ইত্যাদি লিখুন"
+      rows={3}
+      className="w-full rounded-xl border px-3 py-2"
+    />
+
+    <textarea
+      value={note}
+      onChange={(e) => setNote(e.target.value)}
+      placeholder="বিশেষ নির্দেশনা (ঐচ্ছিক)"
+      rows={2}
+      className="w-full rounded-xl border px-3 py-2"
+    />
+
+    <select
+  value={deliveryArea}
+  onChange={(e) => {
+    setDeliveryArea(e.target.value);
+
+    if (e.target.value === "dhaka") {
+      setDeliveryCharge(
+        product.deliveryInsideDhaka
+      );
+    } else {
+      setDeliveryCharge(
+        product.deliveryOutsideDhaka
+      );
+    }
+  }}
+      className="w-full rounded-xl border px-3 py-2"
+    >
+      <option value="dhaka">
+        ঢাকার ভিতরে
+      </option>
+
+      <option value="outside">
+        ঢাকার বাইরে
+      </option>
+    </select>
+
+    <div className="flex gap-2">
 
       <input
         type="text"
-        value={customerName}
+        value={couponCode}
         onChange={(e) =>
-          setCustomerName(e.target.value)
+          setCouponCode(e.target.value)
         }
-        placeholder="আপনার নাম"
-        className="w-full rounded-xl border p-3"
+        placeholder="কুপন কোড"
+        className="w-full rounded-xl border px-3 py-2"
       />
 
-      <input
-        type="tel"
-        value={phone}
-        onChange={(e) =>
-          setPhone(e.target.value)
-        }
-        placeholder="মোবাইল নম্বর"
-        className="w-full rounded-xl border p-3"
-      />
-
-      <textarea
-        value={address}
-        onChange={(e) =>
-          setAddress(e.target.value)
-        }
-        placeholder="সম্পূর্ণ ঠিকানা"
-        rows={4}
-        className="w-full rounded-xl border p-3"
-      />
-
-      <select
-        className="w-full rounded-xl border p-3"
-        defaultValue="dhaka"
-        onChange={(e) => {
-          if (e.target.value === "dhaka") {
-            setDeliveryCharge(
-              product.deliveryInsideDhaka
-            );
-          } else {
-            setDeliveryCharge(
-              product.deliveryOutsideDhaka
-            );
-          }
-        }}
-      >
-        <option value="dhaka">
-          ঢাকার ভিতরে
-        </option>
-
-        <option value="outside">
-          ঢাকার বাইরে
-        </option>
-      </select>
-
-      <div className="space-y-2">
-        <label className="font-medium">
-          কুপন কোড
-        </label>
-
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={couponCode}
-            onChange={(e) =>
-              setCouponCode(e.target.value)
-            }
-            placeholder="কুপন কোড লিখুন"
-            className="w-full rounded-xl border p-3"
-          />
-
-          <button
-            type="button"
-            onClick={applyCoupon}
-            className="rounded-xl bg-black px-4 text-white"
-          >
-            Apply
-          </button>
-        </div>
-
-        {couponMessage && (
-          <p
-            className={`text-sm ${
-              couponMessage.startsWith("✅")
-                ? "text-green-600"
-                : "text-red-600"
-            }`}
-          >
-            {couponMessage}
-          </p>
-        )}
-      </div>
-{loadingStock ? (
-  <div className="rounded-xl bg-gray-100 p-3 text-gray-500">
-    স্টক লোড হচ্ছে...
-  </div>
-) : (
-  <div
-    className={`rounded-xl p-3 font-semibold ${
-      availableStock <= 5
-        ? "bg-red-100 text-red-700"
-        : "bg-green-100 text-green-700"
-    }`}
-  >
-    {availableStock <= 0
-      ? "❌ স্টক শেষ"
-      : availableStock <= 5
-      ? `🚨 শেষ ${availableStock} টি পণ্য বাকি`
-      : `🔥 মাত্র ${availableStock} টি বাকি`}
-  </div>
-)}
-      <div className="space-y-2">
-  <label className="font-medium">
-    পরিমাণ (Quantity)
-  </label>
-
-  <div className="flex items-center gap-3">
-
-    <button
-      type="button"
-      onClick={() =>
-        setQuantity((prev) => Math.max(1, prev - 1))
-      }
-      className="h-10 w-10 rounded-lg border text-lg font-bold"
-    >
-      -
-    </button>
-
-    <div className="min-w-[60px] text-center text-lg font-bold">
-      {quantity}
-    </div>
-
-    <button
-      type="button"
-      onClick={() =>
-  setQuantity((prev) =>
-    Math.min(
-      availableStock || 1,
-      prev + 1
-    )
-  )
-}
-
-      className="h-10 w-10 rounded-lg border text-lg font-bold"
-    >
-      +
-    </button>
-
-  </div>
-</div>   
-
-      <div className="rounded-xl bg-gray-100 p-4 space-y-2">
-       <div className="flex justify-between">
-  <span>
-    পণ্যের মূল্য ({quantity} টি)
-  </span>
-
-  <span>
-    ৳ {product.sellingPrice * quantity}
-  </span>
-</div>
-
-        <div className="flex justify-between">
-          <span>ডেলিভারি চার্জ</span>
-          <span>৳ {deliveryCharge}</span>
-        </div>
-
-        {discount > 0 && (
-          <div className="flex justify-between text-green-600">
-            <span>কুপন ডিসকাউন্ট</span>
-            <span>- ৳ {discount}</span>
-          </div>
-        )}
-
-        <hr />
-
-        <div className="flex justify-between font-bold text-lg">
-          <span>মোট</span>
-          <span>৳ {total}</span>
-        </div>
-      </div>
-
-      <Button
+      <button
         type="button"
-        onClick={handleOrder}
-disabled={
-  loadingStock ||
-  isSubmitting ||
-  availableStock <= 0
-}
+        onClick={applyCoupon}
+        className="rounded-xl bg-teal-700 px-4 text-white"
       >
-        {loadingStock
-  ? "স্টক যাচাই হচ্ছে..."
-  : availableStock <= 0
-  ? "❌ স্টক শেষ"
-  : isSubmitting
-  ? "অর্ডার পাঠানো হচ্ছে..."
-  : "🛒 অর্ডার করুন"}
-      </Button>
+        Apply
+      </button>
+
     </div>
-  );
+
+    {couponMessage && (
+      <p className="text-sm">
+        {couponMessage}
+      </p>
+    )}
+
+    <div className="rounded-2xl border p-4 space-y-2">
+
+      <div className="flex justify-between">
+        <span>পণ্যের মূল্য</span>
+        <span>
+          ৳ {product.sellingPrice * quantity}
+        </span>
+      </div>
+
+      <div className="flex justify-between">
+        <span>ডেলিভারি চার্জ</span>
+        <span>
+          ৳ {deliveryCharge}
+        </span>
+      </div>
+
+      {discount > 0 && (
+        <div className="flex justify-between text-green-600">
+          <span>ডিসকাউন্ট</span>
+          <span>- ৳ {discount}</span>
+        </div>
+      )}
+
+      <hr />
+
+      <div className="flex justify-between text-xl font-bold">
+        <span>মোট</span>
+        <span>৳ {total}</span>
+      </div>
+
+    </div>
+
+    <Button
+      type="button"
+      onClick={handleOrder}
+      disabled={
+        loadingStock ||
+        isSubmitting ||
+        availableStock <= 0
+      }
+    >
+      {loadingStock
+        ? "স্টক যাচাই হচ্ছে..."
+        : availableStock <= 0
+        ? "স্টক শেষ"
+        : isSubmitting
+        ? "অর্ডার পাঠানো হচ্ছে..."
+        : "অর্ডার করুন"}
+    </Button>
+
+  </div>
+);
 }

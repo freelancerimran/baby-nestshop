@@ -16,23 +16,32 @@ export default function ProductsPageClient({
   const [search, setSearch] =
     useState("");
 
+  const [statusFilter, setStatusFilter] =
+    useState("All");
+
   const filteredProducts =
     products.filter((product) => {
       const searchTerm =
         search.toLowerCase();
 
-      return (
+      const matchesSearch =
         product.productName
           .toLowerCase()
           .includes(searchTerm) ||
-
         product.productId
           .toString()
           .includes(searchTerm) ||
-
         product.slug
           .toLowerCase()
-          .includes(searchTerm)
+          .includes(searchTerm);
+
+      const matchesStatus =
+        statusFilter === "All" ||
+        product.status === statusFilter;
+
+      return (
+        matchesSearch &&
+        matchesStatus
       );
     });
 
@@ -51,7 +60,7 @@ export default function ProductsPageClient({
         </button>
       </div>
 
-      <div className="mb-6">
+      <div className="mb-6 flex gap-4">
         <input
           type="text"
           placeholder="Search by Product Name, ID or Slug..."
@@ -59,8 +68,30 @@ export default function ProductsPageClient({
           onChange={(e) =>
             setSearch(e.target.value)
           }
-          className="w-full rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+
+        <select
+          value={statusFilter}
+          onChange={(e) =>
+            setStatusFilter(
+              e.target.value
+            )
+          }
+          className="rounded-xl border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="All">
+            All Products
+          </option>
+
+          <option value="Active">
+            Active Products
+          </option>
+
+          <option value="Inactive">
+            Inactive Products
+          </option>
+        </select>
       </div>
 
       <ProductsTable

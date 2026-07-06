@@ -10,9 +10,7 @@ export const products: Product[] = [
     shortDescription: "Perfect learning book",
 
     description: "Interactive sensory learning book for children.",
-
-    costPrice: 450,
-
+    regularPrice: 990,
     sellingPrice: 890,
 
     deliveryInsideDhaka: 80,
@@ -33,9 +31,7 @@ export const products: Product[] = [
     shortDescription: "Fun learning",
 
     description: "Fun and engaging math learning activities.",
-
-    costPrice: 500,
-
+    regularPrice: 1090,
     sellingPrice: 990,
 
     deliveryInsideDhaka: 80,

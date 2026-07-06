@@ -6,7 +6,7 @@ async function getProducts(): Promise<AdminProduct[]> {
     console.log("STEP 1");
 
     const response = await fetch(
-      "http://localhost:3000/api/admin/products",
+  `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/products`,
       {
         cache: "no-store",
       }
