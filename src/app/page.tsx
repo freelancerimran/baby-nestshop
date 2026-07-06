@@ -1,7 +1,7 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import ProductCard from "@/components/ProductCard";
 import { supabase } from "@/lib/supabase";
-
 async function getFeaturedProducts() {
   const { data, error } = await supabase
     .from("products")
