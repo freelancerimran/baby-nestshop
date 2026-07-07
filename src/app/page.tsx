@@ -138,13 +138,15 @@ const [
 {settings?.hero_image ? (
   <div className="relative w-full max-w-xl overflow-hidden rounded-3xl shadow-2xl">
     <Image
-      src={settings.hero_image}
-      alt="Hero"
-      width={800}
-      height={800}
-      priority
-      sizes="(max-width:768px) 100vw, 50vw"
-      className="h-auto w-full object-cover"
+  src={settings.hero_image}
+  alt="Hero"
+  width={800}
+  height={800}
+  priority
+  fetchPriority="high"
+  quality={75}
+  sizes="(max-width:768px) 100vw, 50vw"
+  className="h-auto w-full object-cover"
     />
   </div>
 ) : (
