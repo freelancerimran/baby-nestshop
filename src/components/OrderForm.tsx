@@ -197,24 +197,26 @@ const [deliveryArea, setDeliveryArea] = useState("dhaka");
   typeof window !== "undefined" &&
   window.fbq
 ) {
-  window.fbq(
-    "track",
-    "Purchase",
-    {
-      content_ids: [
-        String(product.id),
-      ],
-      content_name:
-        product.name,
-      content_type:
-        "product",
-      currency: "BDT",
-      value: total,
-      num_items: quantity,
-      order_id:
-        result.orderId,
-    }
-  );
+window.fbq(
+  "track",
+  "Purchase",
+  {
+    content_ids: [
+      String(product.id),
+    ],
+    content_name:
+      product.name,
+    content_type:
+      "product",
+    currency: "BDT",
+    value: total,
+    num_items: quantity,
+  },
+  {
+    eventID:
+      result.orderId,
+  }
+);
 }
 
  setAvailableStock((prev) =>

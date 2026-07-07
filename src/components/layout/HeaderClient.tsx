@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Menu,
@@ -20,6 +21,12 @@ export default function HeaderClient({
 }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] =
     useState(false);
+
+    const router = useRouter();
+
+const [search, setSearch] =
+  useState("");
+
 
   return (
     <>
@@ -134,10 +141,26 @@ export default function HeaderClient({
                 className="text-gray-400"
               />
 
-              <input
-                placeholder="Search products..."
-                className="ml-2 w-44 border-none bg-transparent text-sm outline-none"
-              />
+<input
+  value={search}
+  onChange={(e) =>
+    setSearch(e.target.value)
+  }
+  onKeyDown={(e) => {
+    if (
+      e.key === "Enter" &&
+      search.trim()
+    ) {
+      router.push(
+        `/shop?search=${encodeURIComponent(
+          search
+        )}`
+      );
+    }
+  }}
+  placeholder="Search products..."
+  className="ml-2 w-44 border-none bg-transparent text-sm outline-none"
+/>
             </div>
 
             <Link
@@ -242,11 +265,29 @@ export default function HeaderClient({
                   className="text-gray-400"
                 />
 
-                <input
-                  type="text"
-                  placeholder="Search products..."
-                  className="ml-3 w-full bg-transparent text-sm outline-none"
-                />
+<input
+  type="text"
+  value={search}
+  onChange={(e) =>
+    setSearch(e.target.value)
+  }
+  onKeyDown={(e) => {
+    if (
+      e.key === "Enter" &&
+      search.trim()
+    ) {
+      setMobileMenuOpen(false);
+
+      router.push(
+        `/shop?search=${encodeURIComponent(
+          search
+        )}`
+      );
+    }
+  }}
+  placeholder="Search products..."
+  className="ml-3 w-full bg-transparent text-sm outline-none"
+/>
 
               </div>
 

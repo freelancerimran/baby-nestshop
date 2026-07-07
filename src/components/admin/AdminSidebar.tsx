@@ -14,6 +14,8 @@ import {
   BadgeDollarSign,
 } from "lucide-react";
 
+import AdminLogoutButton from "./AdminLogoutButton";
+
 const menuItems = [
   {
     name: "Dashboard",
@@ -61,7 +63,7 @@ export default function AdminSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-72 border-r border-gray-200 bg-white">
+    <aside className="flex h-screen w-72 flex-col border-r border-gray-200 bg-white">
       <div className="border-b border-gray-200 p-6">
         <h1 className="text-2xl font-bold text-blue-600">
           Baby Nest ERP
@@ -72,7 +74,7 @@ export default function AdminSidebar() {
         </p>
       </div>
 
-      <nav className="p-4">
+      <nav className="flex flex-1 flex-col p-4">
         <div className="space-y-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -98,6 +100,10 @@ export default function AdminSidebar() {
               </Link>
             );
           })}
+        </div>
+
+        <div className="mt-auto border-t border-gray-200 pt-4">
+          <AdminLogoutButton />
         </div>
       </nav>
     </aside>

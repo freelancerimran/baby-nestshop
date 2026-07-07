@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import ProductCard from "@/components/ProductCard";
 import { supabase } from "@/lib/supabase";
@@ -20,8 +21,28 @@ async function getProducts() {
   return data || [];
 }
 
-export default async function ShopPage() {
+export default async function ShopPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    search?: string;
+  }>;
+}) {
   const products = await getProducts();
+
+  const params = await searchParams;
+
+  const search =
+    params.search?.toLowerCase().trim() || "";
+
+  const filteredProducts =
+    search.length > 0
+      ? products.filter((product) =>
+          product.product_name
+            ?.toLowerCase()
+            .includes(search)
+        )
+      : products;
 
   return (
     <div className="bg-gray-50">
@@ -46,9 +67,17 @@ export default async function ShopPage() {
 
           <div className="mt-8 inline-flex rounded-full bg-white px-5 py-3 shadow-sm">
             <span className="font-medium text-gray-700">
-              {products.length} Products Available
+              {filteredProducts.length} Products Available
             </span>
           </div>
+
+          {search && (
+            <div className="mt-4">
+              <span className="inline-flex rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
+                Search Result For: "{search}"
+              </span>
+            </div>
+          )}
 
         </div>
       </section>
@@ -64,7 +93,7 @@ export default async function ShopPage() {
             </span>
 
             <h2 className="mt-4 text-3xl font-bold text-gray-900 md:text-4xl">
-              All Products
+              {search ? "Search Results" : "All Products"}
             </h2>
 
             <p className="mx-auto mt-4 max-w-2xl text-gray-600">
@@ -74,26 +103,26 @@ export default async function ShopPage() {
 
           </div>
 
-          {products.length === 0 ? (
+          {filteredProducts.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-gray-300 bg-white py-24 text-center">
 
               <div className="text-6xl">
-                📦
+                🔍
               </div>
 
               <h3 className="mt-6 text-2xl font-bold text-gray-900">
-                No Products Available
+                No Products Found
               </h3>
 
               <p className="mt-3 text-gray-500">
-                Products will appear here once added from the admin panel.
+                We couldn't find any products matching your search.
               </p>
 
             </div>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 
-              {products.map((product) => (
+              {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.product_id}
                   id={Number(product.product_id)}
@@ -101,6 +130,7 @@ export default async function ShopPage() {
                   name={product.product_name}
                   price={Number(product.price)}
                   image={product.image || ""}
+                  stock={Number(product.display_stock || 0)}
                   featured={product.featured}
                   bestSeller={product.best_seller}
                   newArrival={product.new_arrival}

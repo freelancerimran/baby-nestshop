@@ -635,7 +635,7 @@ const [
           </a>
 
           <a
-            href="/products"
+            href="/shop"
             className="rounded-xl border border-white/30 bg-white/10 px-8 py-4 font-semibold text-white backdrop-blur transition hover:bg-white/20"
           >
             Browse Products
