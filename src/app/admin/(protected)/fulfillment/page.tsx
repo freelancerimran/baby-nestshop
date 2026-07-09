@@ -95,10 +95,16 @@ if (data.success) {
         `❌ ${data.message || "Scan Failed"}`
       );
     }
-  } catch (error) {
-    console.error(error);
-    setScanMessage("❌ Scan Failed");
-  } finally {
+  } catch (error: any) {
+  console.error("CAMERA ERROR:", error);
+
+  setScanMessage(
+    `❌ ${error?.message || "Camera Access Failed"}`
+  );
+
+  setCameraOpen(false);
+  setScannerRunning(false);
+} finally {
     setScanLoading(false);
   }
 };
