@@ -62,87 +62,6 @@ const [scanLoading, setScanLoading] = useState(false);
 const [cameraOpen, setCameraOpen] = useState(false);
 const [scannerRunning, setScannerRunning] = useState(false);
 
-const handleScan = async () => {
-  if (!scanInput.trim()) return;
-
-  try {
-    setScanLoading(true);
-    setScanMessage("");
-
-    const res = await fetch(
-      "/api/admin/fulfillment/scan",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          consignmentId: scanInput,
-        }),
-      }
-    );
-
-    const data = await res.json();
-
-if (data.success) {
-  setScanMessage("✅ Added To Queue");
-  setScanInput("");
-
-  await loadQueue();
-  await loadStats();
-} else {
-      setScanMessage(
-        `❌ ${data.message || "Scan Failed"}`
-      );
-    }
-  } catch (error: any) {
-  console.error("CAMERA ERROR:", error);
-
-  setScanMessage(
-    `❌ ${error?.message || "Camera Access Failed"}`
-  );
-
-  setCameraOpen(false);
-  setScannerRunning(false);
-} finally {
-    setScanLoading(false);
-  }
-};
-const handleDelete = async (id: number) => {
-  const confirmed = window.confirm(
-    "Remove this item from queue?"
-  );
-
-  if (!confirmed) return;
-
-  try {
-    const res = await fetch(
-      "/api/admin/fulfillment/delete",
-      {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id,
-        }),
-      }
-    );
-
-    const data = await res.json();
-
-    if (data.success) {
-      loadQueue();
-      loadStats();
-    } else {
-      alert(data.message);
-    }
-  } catch (error) {
-    console.error(error);
-    alert("Delete Failed");
-  }
-};
-
 const startCameraScanner = async () => {
   if (scannerRunning) return;
 
@@ -151,7 +70,22 @@ const startCameraScanner = async () => {
     setScannerRunning(true);
     setCameraOpen(true);
 
-    const html5QrCode = new Html5Qrcode("reader");
+    // React render complete হওয়ার জন্য wait
+    await new Promise((resolve) =>
+      setTimeout(resolve, 1000)
+    );
+
+    const readerElement =
+      document.getElementById("reader");
+
+    if (!readerElement) {
+      throw new Error(
+        "Reader element not rendered"
+      );
+    }
+
+    const html5QrCode =
+      new Html5Qrcode("reader");
 
     await html5QrCode.start(
       {
@@ -168,25 +102,34 @@ const startCameraScanner = async () => {
             {
               method: "POST",
               headers: {
-                "Content-Type": "application/json",
+                "Content-Type":
+                  "application/json",
               },
               body: JSON.stringify({
-                consignmentId: decodedText,
+                consignmentId:
+                  decodedText,
               }),
             }
           );
 
-          const data = await res.json();
+          const data =
+            await res.json();
 
           if (data.success) {
-            setScanMessage("✅ Added To Queue");
+            setScanMessage(
+              "✅ Added To Queue"
+            );
+
             setScanInput("");
 
             await loadQueue();
             await loadStats();
           } else {
             setScanMessage(
-              `❌ ${data.message || "Already Scanned"}`
+              `❌ ${
+                data.message ||
+                "Already Scanned"
+              }`
             );
           }
 
@@ -231,7 +174,81 @@ const startCameraScanner = async () => {
     setScannerRunning(false);
   }
 };
+const handleScan = async () => {
+  if (!scanInput.trim()) return;
 
+  try {
+    setScanLoading(true);
+    setScanMessage("");
+
+    const res = await fetch(
+      "/api/admin/fulfillment/scan",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          consignmentId: scanInput,
+        }),
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+      setScanMessage("✅ Added To Queue");
+      setScanInput("");
+
+      await loadQueue();
+      await loadStats();
+    } else {
+      setScanMessage(
+        `❌ ${data.message || "Scan Failed"}`
+      );
+    }
+  } catch (error) {
+    console.error(error);
+    setScanMessage("❌ Scan Failed");
+  } finally {
+    setScanLoading(false);
+  }
+};
+
+const handleDelete = async (id: number) => {
+  const confirmed = window.confirm(
+    "Remove this item from queue?"
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/delete",
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id,
+        }),
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+      await loadQueue();
+      await loadStats();
+    } else {
+      alert(data.message);
+    }
+  } catch (error) {
+    console.error(error);
+    alert("Delete Failed");
+  }
+};
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
