@@ -38,8 +38,8 @@ const menuItems = [
     icon: Boxes,
   },
   {
-    name: "Courier",
-    href: "/admin/courier",
+    name: "fulfillment",
+    href: "/admin/fulfillment",
     icon: Truck,
   },
   {
@@ -63,15 +63,15 @@ export default function AdminSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-72 flex-col border-r border-gray-200 bg-white">
-      <div className="border-b border-gray-200 p-6">
-        <h1 className="text-2xl font-bold text-blue-600">
-          Baby Nest ERP
-        </h1>
+    <aside className="hidden h-screen w-72 flex-col border-r border-gray-200 bg-white lg:flex">
+      <div className="border-b border-gray-200 p-3 lg:p-6">
+<h1 className="hidden lg:block text-2xl font-bold text-blue-600">
+  Baby Nest ERP
+</h1>
 
-        <p className="mt-1 text-sm text-gray-500">
-          Order & Inventory System
-        </p>
+<p className="hidden lg:block mt-1 text-sm text-gray-500">
+  Order & Inventory System
+</p>
       </div>
 
       <nav className="flex flex-1 flex-col p-4">
@@ -94,7 +94,7 @@ export default function AdminSidebar() {
               >
                 <Icon size={20} />
 
-                <span className="font-medium">
+                <span className="hidden lg:block font-medium">
                   {item.name}
                 </span>
               </Link>

@@ -9,6 +9,8 @@ import "./globals.css";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import FacebookPixel from "@/components/facebook/FacebookPixel";
+import LayoutWrapper from "@/components/layout/LayoutWrapper";
+
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-plus-jakarta",
@@ -37,13 +39,19 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <FacebookPixel />
-        <Header />
+
+        <LayoutWrapper>
+          <Header />
+        </LayoutWrapper>
 
         <main className="flex-1">
           {children}
         </main>
 
-        <Footer />
+        <LayoutWrapper>
+          <Footer />
+        </LayoutWrapper>
+
       </body>
     </html>
   );
