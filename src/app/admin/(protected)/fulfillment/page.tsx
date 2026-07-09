@@ -147,6 +147,7 @@ const startCameraScanner = async () => {
   if (scannerRunning) return;
 
   try {
+    setScanMessage("");
     setScannerRunning(true);
     setCameraOpen(true);
 
@@ -167,34 +168,25 @@ const startCameraScanner = async () => {
             {
               method: "POST",
               headers: {
-                "Content-Type":
-                  "application/json",
+                "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                consignmentId:
-                  decodedText,
+                consignmentId: decodedText,
               }),
             }
           );
 
-          const data =
-            await res.json();
+          const data = await res.json();
 
           if (data.success) {
-            setScanMessage(
-              "✅ Added To Queue"
-            );
-
+            setScanMessage("✅ Added To Queue");
             setScanInput("");
 
             await loadQueue();
             await loadStats();
           } else {
             setScanMessage(
-              `❌ ${
-                data.message ||
-                "Already Scanned"
-              }`
+              `❌ ${data.message || "Already Scanned"}`
             );
           }
 
@@ -203,11 +195,17 @@ const startCameraScanner = async () => {
 
           setCameraOpen(false);
           setScannerRunning(false);
-        } catch (error) {
-          console.error(error);
+        } catch (error: any) {
+          console.error(
+            "SCAN PROCESS ERROR:",
+            error
+          );
 
           setScanMessage(
-            "❌ Scan Failed"
+            `❌ ${
+              error?.message ||
+              "Scan Failed"
+            }`
           );
 
           setCameraOpen(false);
@@ -216,11 +214,17 @@ const startCameraScanner = async () => {
       },
       () => {}
     );
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error(
+      "CAMERA ERROR:",
+      error
+    );
 
     setScanMessage(
-      "❌ Camera Access Failed"
+      `❌ ${
+        error?.message ||
+        JSON.stringify(error)
+      }`
     );
 
     setCameraOpen(false);
