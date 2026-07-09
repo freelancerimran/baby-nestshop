@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import SummaryCards from "@/components/admin/fulfillment/SummaryCards";
 
 export default function FulfillmentPage() {
@@ -137,23 +137,23 @@ const handleDelete = async (id: number) => {
   }
 };
 
-const startCameraScanner = () => {
+const startCameraScanner = async () => {
   if (scannerRunning) return;
 
-  setScannerRunning(true);
-  setCameraOpen(true);
+  try {
+    setScannerRunning(true);
+    setCameraOpen(true);
 
-  setTimeout(() => {
-    const scanner = new Html5QrcodeScanner(
-      "reader",
+    const html5QrCode = new Html5Qrcode("reader");
+
+    await html5QrCode.start(
+      {
+        facingMode: "environment",
+      },
       {
         fps: 10,
         qrbox: 250,
       },
-      false
-    );
-
-    scanner.render(
       async (decodedText) => {
         try {
           const res = await fetch(
@@ -161,36 +161,48 @@ const startCameraScanner = () => {
             {
               method: "POST",
               headers: {
-                "Content-Type": "application/json",
+                "Content-Type":
+                  "application/json",
               },
               body: JSON.stringify({
-                consignmentId: decodedText,
+                consignmentId:
+                  decodedText,
               }),
             }
           );
 
-          const data = await res.json();
+          const data =
+            await res.json();
 
           if (data.success) {
-            setScanMessage("✅ Added To Queue");
+            setScanMessage(
+              "✅ Added To Queue"
+            );
+
             setScanInput("");
 
             await loadQueue();
             await loadStats();
           } else {
             setScanMessage(
-              `❌ ${data.message || "Scan Failed"}`
+              `❌ ${
+                data.message ||
+                "Already Scanned"
+              }`
             );
           }
 
-          await scanner.clear();
+          await html5QrCode.stop();
+          await html5QrCode.clear();
 
           setCameraOpen(false);
           setScannerRunning(false);
         } catch (error) {
           console.error(error);
 
-          setScanMessage("❌ Scan Failed");
+          setScanMessage(
+            "❌ Scan Failed"
+          );
 
           setCameraOpen(false);
           setScannerRunning(false);
@@ -198,7 +210,16 @@ const startCameraScanner = () => {
       },
       () => {}
     );
-  }, 300);
+  } catch (error) {
+    console.error(error);
+
+    setScanMessage(
+      "❌ Camera Access Failed"
+    );
+
+    setCameraOpen(false);
+    setScannerRunning(false);
+  }
 };
 
   return (
@@ -451,7 +472,10 @@ const startCameraScanner = () => {
 </div>
 {cameraOpen && (
   <div className="mt-4">
-    <div id="reader"></div>
+<div
+  id="reader"
+  className="overflow-hidden rounded-2xl"
+/>
   </div>
 )}
 
