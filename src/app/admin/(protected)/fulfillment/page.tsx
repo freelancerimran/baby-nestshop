@@ -96,7 +96,7 @@ const startCameraScanner = async () => {
 fps: 20,
 qrbox: {
   width: 320,
-  height: 80,
+  height: 120,
 },
 aspectRatio: 1.7778,
       },
@@ -502,19 +502,21 @@ const handleDelete = async (id: number) => {
   </button>
 </div>
 {cameraOpen && (
-  <div className="relative mt-4">
+  <div className="relative mt-4 overflow-hidden rounded-2xl">
     <div
       id="reader"
       className="overflow-hidden rounded-2xl"
     />
 
+    {/* Dark Overlay */}
+    <div className="pointer-events-none absolute inset-0 bg-black/40" />
+
+    {/* Scan Window */}
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <div className="w-[320px] h-[120px] rounded-xl border-4 border-green-500">
-        <div className="flex h-full items-center justify-center">
-          <span className="rounded bg-black/60 px-3 py-1 text-sm text-white">
-            Place Barcode Here
-          </span>
-        </div>
+      <div className="relative flex h-[120px] w-[320px] items-center justify-center rounded-xl border-4 border-green-500 bg-transparent shadow-[0_0_20px_rgba(34,197,94,0.8)]">
+        <span className="rounded bg-black/70 px-3 py-1 text-sm font-medium text-white">
+          Place Barcode Here
+        </span>
       </div>
     </div>
   </div>
