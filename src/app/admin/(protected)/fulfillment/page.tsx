@@ -92,8 +92,12 @@ const startCameraScanner = async () => {
         facingMode: "environment",
       },
       {
-        fps: 10,
-        qrbox: 250,
+fps: 20,
+qrbox: {
+  width: 320,
+  height: 160,
+},
+aspectRatio: 1.7778,
       },
       async (decodedText) => {
         try {
@@ -133,11 +137,14 @@ const startCameraScanner = async () => {
             );
           }
 
-          await html5QrCode.stop();
-          await html5QrCode.clear();
+setCameraOpen(false);
+setScannerRunning(false);
 
-          setCameraOpen(false);
-          setScannerRunning(false);
+try {
+  await html5QrCode.clear();
+} catch (e) {
+  console.log("scanner cleanup");
+}
         } catch (error: any) {
           console.error(
             "SCAN PROCESS ERROR:",
