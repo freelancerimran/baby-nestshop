@@ -65,13 +65,15 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin
         .from("fulfillment_queue")
         .insert({
-          order_id: order.order_id,
-          consignment_id: order.consignment_id,
-          customer_name: order.customer_name,
-          phone: order.phone,
-          quantity: order.quantity,
-          fulfillment_status:
-            order.fulfillment_status || "received",
+  order_id: order.order_id,
+  consignment_id: order.consignment_id,
+  customer_name: order.customer_name,
+  phone: order.phone,
+  address: order.address,
+  product_name: order.product_name,
+  quantity: order.quantity,
+  fulfillment_status:
+    order.fulfillment_status || "received",
         })
         .select()
         .single();

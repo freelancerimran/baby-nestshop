@@ -3,16 +3,17 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function GET() {
   try {
-const { data, error } = await supabaseAdmin
-  .from("fulfillment_queue")
-  .select("*")
-  .eq(
-    "fulfillment_status",
-    "received"
-  )
-  .order("scanned_at", {
-    ascending: false,
-  });
+    const { data, error } =
+      await supabaseAdmin
+        .from("fulfillment_queue")
+        .select("*")
+        .eq(
+          "fulfillment_status",
+          "delivered"
+        )
+        .order("delivered_at", {
+          ascending: false,
+        });
 
     if (error) throw error;
 
@@ -26,7 +27,8 @@ const { data, error } = await supabaseAdmin
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to load queue",
+        message:
+          "Failed to load delivered orders",
       },
       {
         status: 500,

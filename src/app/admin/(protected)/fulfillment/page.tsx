@@ -1,8 +1,13 @@
 "use client";
-
+import { generateDispatchSheet }
+from "@/lib/dispatch-sheet";
 import { useEffect, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import SummaryCards from "@/components/admin/fulfillment/SummaryCards";
+import { generatePackingSlip }
+from "@/lib/packing-slip";
+import { generatePickList }
+from "@/lib/pick-list";
 
 export default function FulfillmentPage() {
   const [stats, setStats] = useState({
@@ -14,7 +19,11 @@ export default function FulfillmentPage() {
     totalQty: 0,
     todayCod: 0,
   });
-  const [queue, setQueue] = useState<any[]>([]);
+const [queue, setQueue] = useState<any[]>([]);
+const [deliveredQueue, setDeliveredQueue] =
+  useState<any[]>([]);
+const [dispatchQueue, setDispatchQueue] = useState<any[]>([]);
+const [productSummary, setProductSummary] = useState<any[]>([]);
 const loadStats = async () => {
   try {
     const res = await fetch("/api/admin/fulfillment/stats");
@@ -51,10 +60,45 @@ const loadQueue = async () => {
     console.error(error);
   }
 };
+const loadDeliveredQueue = async () => {
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/delivered-list"
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+      setDeliveredQueue(data.data);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+};
 useEffect(() => {
   loadStats();
   loadQueue();
-}, []);
+  loadDispatchQueue();
+  loadDeliveredQueue();
+  loadProductSummary();
+}, [])
+const loadDispatchQueue = async () => {
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/dispatched"
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+      setDispatchQueue(data.data);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+;
 
 const [scanInput, setScanInput] = useState("");
 const [scanMessage, setScanMessage] = useState("");
@@ -243,8 +287,10 @@ const handleDelete = async (id: number) => {
     const data = await res.json();
 
     if (data.success) {
-      await loadQueue();
-      await loadStats();
+  await loadQueue();
+  await loadDispatchQueue();
+  await loadDeliveredQueue();
+  await loadStats();
     } else {
       alert(data.message);
     }
@@ -253,6 +299,165 @@ const handleDelete = async (id: number) => {
     alert("Delete Failed");
   }
 };
+
+const handleDispatch = async (id: number) => {
+  console.log("Dispatch Clicked:", id);
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/dispatch",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id,
+        }),
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+  await loadQueue();
+  await loadDispatchQueue();
+  await loadDeliveredQueue();
+  await loadStats();
+    } else {
+      alert(data.message);
+    }
+  } catch (error) {
+    console.error(error);
+    alert("Dispatch Failed");
+  }
+};
+
+const handleUndoDispatch = async (
+  id: number
+) => {
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/undo-dispatch",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          id,
+        }),
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+  await loadQueue();
+  await loadDispatchQueue();
+  await loadDeliveredQueue();
+  await loadStats();
+    } else {
+      alert(data.message);
+    }
+  } catch (error) {
+    console.error(error);
+    alert("Undo Dispatch Failed");
+  }
+};
+const handleDelivered = async (
+  id: number
+) => {
+  console.log(
+    "DELIVERED BUTTON CLICKED:",
+    id
+  );
+
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/delivered",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          id,
+        }),
+      }
+    );
+
+    console.log(
+      "DELIVERED RESPONSE STATUS:",
+      res.status
+    );
+
+    const data = await res.json();
+
+    console.log(
+      "DELIVERED RESPONSE:",
+      data
+    );
+
+    if (data.success) {
+      await loadQueue();
+      await loadDispatchQueue();
+      await loadDeliveredQueue();
+      await loadStats();
+
+      console.log(
+        "DELIVERED SUCCESS"
+      );
+    } else {
+      alert(
+        data.message ||
+          "Delivered Update Failed"
+      );
+    }
+  } catch (error) {
+    console.error(
+      "DELIVERED ERROR:",
+      error
+    );
+
+    alert(
+      "Delivered Update Failed"
+    );
+  }
+};
+
+const handleDispatchSheet = () => {
+  generateDispatchSheet(
+    dispatchQueue
+  );
+};
+
+const handlePickList = () => {
+  generatePickList(
+    productSummary
+  );
+};
+const loadProductSummary =
+  async () => {
+    try {
+      const res = await fetch(
+        "/api/admin/fulfillment/product-summary"
+      );
+
+      const data =
+        await res.json();
+
+      if (data.success) {
+        setProductSummary(
+          data.data
+        );
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -335,20 +540,17 @@ const handleDelete = async (id: number) => {
     </span>
   </div>
 
-  <div className="space-y-5">
-    {[
-      { name: "Busy Book", qty: 15, width: "100%" },
-      { name: "Water Book", qty: 8, width: "55%" },
-      { name: "Puzzle Book", qty: 5, width: "35%" },
-      { name: "Magnetic Book", qty: 10, width: "70%" },
-    ].map((item) => (
+<div className="space-y-5">
+  {productSummary
+    .slice(0, 5)
+    .map((item) => (
       <div key={item.name}>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-medium text-gray-700">
+        <div className="mb-2 flex justify-between">
+          <span>
             {item.name}
           </span>
 
-          <span className="font-semibold">
+          <span>
             {item.qty}
           </span>
         </div>
@@ -356,12 +558,17 @@ const handleDelete = async (id: number) => {
         <div className="h-3 overflow-hidden rounded-full bg-gray-100">
           <div
             className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-500"
-            style={{ width: item.width }}
+            style={{
+              width: `${Math.min(
+                item.qty * 10,
+                100
+              )}%`,
+            }}
           />
         </div>
       </div>
     ))}
-  </div>
+</div>
 </div>
 
 {/* Quick Actions */}
@@ -371,7 +578,10 @@ const handleDelete = async (id: number) => {
   </h2>
 
   <div className="grid gap-4">
-    <button className="group rounded-2xl border border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 text-left transition hover:shadow-md">
+    <button
+  onClick={handlePickList}
+  className="group rounded-2xl border border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 text-left transition hover:shadow-md"
+>
       <div className="flex items-center gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500 text-xl text-white">
           📋
@@ -389,23 +599,26 @@ const handleDelete = async (id: number) => {
       </div>
     </button>
 
-    <button className="group rounded-2xl border border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50 p-4 text-left transition hover:shadow-md">
-      <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-500 text-xl text-white">
-          🚚
-        </div>
+<button
+  onClick={handleDispatchSheet}
+  className="group rounded-2xl border border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50 p-4 text-left transition hover:shadow-md"
+>
+  <div className="flex items-center gap-3">
+    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-500 text-xl text-white">
+      🚚
+    </div>
 
-        <div>
-          <p className="font-semibold text-gray-900">
-            Dispatch Sheet
-          </p>
+    <div>
+      <p className="font-semibold text-gray-900">
+        Dispatch Sheet
+      </p>
 
-          <p className="text-sm text-gray-500">
-            Print courier handover sheet
-          </p>
-        </div>
-      </div>
-    </button>
+      <p className="text-sm text-gray-500">
+        Print courier handover sheet
+      </p>
+    </div>
+  </div>
+</button>
 
     <button className="group rounded-2xl border border-gray-200 bg-gradient-to-r from-purple-50 to-violet-50 p-4 text-left transition hover:shadow-md">
       <div className="flex items-center gap-3">
@@ -513,7 +726,7 @@ const handleDelete = async (id: number) => {
 
     {/* Scan Window */}
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <div className="relative flex h-[120px] w-[320px] items-center justify-center rounded-xl border-4 border-green-500 bg-transparent shadow-[0_0_20px_rgba(34,197,94,0.8)]">
+      <div className="relative flex h-[180px] w-[420px] items-center justify-center rounded-xl border-4 border-green-500 bg-transparent shadow-[0_0_20px_rgba(34,197,94,0.8)]">
         <span className="rounded bg-black/70 px-3 py-1 text-sm font-medium text-white">
           Place Barcode Here
         </span>
@@ -599,7 +812,23 @@ const handleDelete = async (id: number) => {
           {item.fulfillment_status}
         </span>
       </td>
-<td>
+<td className="space-x-2">
+  <button
+    onClick={() =>
+      generatePackingSlip(item)
+    }
+    className="rounded bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200"
+  >
+    📦 Packing Slip
+  </button>
+
+  <button
+    onClick={() => handleDispatch(item.id)}
+    className="rounded bg-green-100 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-200"
+  >
+    🚚 Handed To Courier
+  </button>
+
   <button
     onClick={() => handleDelete(item.id)}
     className="rounded bg-red-100 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-200"
@@ -614,22 +843,177 @@ const handleDelete = async (id: number) => {
         </div>
       </div>
 
+<div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+  <div className="mb-4">
+    <h2 className="text-xl font-semibold">
+      Dispatch Queue
+    </h2>
+  </div>
+
+  <div className="overflow-x-auto">
+    <table className="min-w-full">
+      <thead>
+        <tr className="border-b">
+          <th className="py-3 text-left">
+            Order
+          </th>
+
+          <th className="text-left">
+            Consignment ID
+          </th>
+
+          <th className="text-left">
+            Customer
+          </th>
+
+          <th className="text-left">
+            Phone
+          </th>
+
+          <th className="text-left">
+            Status
+          </th>
+
+          <th className="text-left">
+            Action
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {dispatchQueue.map((item) => (
+          <tr
+            key={item.id}
+            className="border-b"
+          >
+            <td className="py-4">
+              {item.order_id}
+            </td>
+
+            <td>
+              {item.consignment_id}
+            </td>
+
+            <td>
+              {item.customer_name}
+            </td>
+
+            <td>
+              {item.phone}
+            </td>
+
+            <td>
+              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+                dispatched
+              </span>
+            </td>
+
+            <td className="space-x-2">
+              <button
+                onClick={() =>
+                  handleUndoDispatch(item.id)
+                }
+                className="rounded bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-700 hover:bg-yellow-200"
+              >
+                ↩ Undo
+              </button>
+
+              <button
+                onClick={() =>
+                  handleDelivered(item.id)
+                }
+                className="rounded bg-green-100 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-200"
+              >
+                ✅ Delivered
+              </button>
+
+              <button
+                onClick={() =>
+                  handleDelete(item.id)
+                }
+                className="rounded bg-red-100 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-200"
+              >
+                Remove
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+
       {/* Dispatch Queue */}
-      <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold">
-            Dispatch Queue
-          </h2>
+<div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+  <div className="mb-4 flex items-center justify-between">
+    <h2 className="text-xl font-semibold">
+      Delivered Orders
+    </h2>
+  </div>
 
-<button className="rounded-2xl bg-green-600 px-5 py-3 font-medium text-white shadow-lg transition hover:bg-green-700">
-  🚚 Handed To Courier
-</button>
-        </div>
+  <div className="overflow-x-auto">
+    <table className="min-w-full">
+      <thead>
+        <tr className="border-b">
+          <th className="py-3 text-left">
+            Order
+          </th>
+          <th className="text-left">
+            Consignment ID
+          </th>
+          <th className="text-left">
+            Customer
+          </th>
+          <th className="text-left">
+            Phone
+          </th>
+          <th className="text-left">
+            Status
+          </th>
+          <th className="text-left">
+  Delivered At
+</th>
+        </tr>
+      </thead>
 
-        <div className="rounded-2xl border border-dashed p-10 text-center text-gray-500">
-          Packed Orders Will Appear Here
-        </div>
-      </div>
+      <tbody>
+        {deliveredQueue.map((item) => (
+          <tr
+            key={item.id}
+            className="border-b"
+          >
+            <td className="py-4">
+              {item.order_id}
+            </td>
+
+            <td>
+              {item.consignment_id}
+            </td>
+
+            <td>
+              {item.customer_name}
+            </td>
+
+            <td>{item.phone}</td>
+
+            <td>
+              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                delivered
+              </span>
+            </td>
+            <td>
+  {item.delivered_at
+    ? new Date(
+        item.delivered_at
+      ).toLocaleDateString()
+    : "-"}
+</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
     </div>
   );
 }

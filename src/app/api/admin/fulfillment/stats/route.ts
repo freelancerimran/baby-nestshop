@@ -1,74 +1,93 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function GET() {
   try {
-    const { data: orders, error } = await supabase
-      .from("orders")
+    // Orders Table
+    const { data: orders, error: ordersError } =
+      await supabaseAdmin
+        .from("orders")
+        .select("*");
+
+    if (ordersError) throw ordersError;
+
+    // Fulfillment Queue
+    const {
+      data: fulfillmentRows,
+      error: fulfillmentError,
+    } = await supabaseAdmin
+      .from("fulfillment_queue")
       .select("*");
 
-    if (error) throw error;
+    if (fulfillmentError)
+      throw fulfillmentError;
 
-    const rows = orders || [];
+    const orderRows = orders || [];
+    const queueRows =
+      fulfillmentRows || [];
 
-    // Unique Order Count
-    const uniqueOrders = new Set(
-      rows.map((item) => item.order_id)
-    );
+    // Orders Stats
+    const todayOrders =
+      orderRows.length;
 
-    const todayOrders = uniqueOrders.size;
+    const totalQty =
+      orderRows.reduce(
+        (sum, item) =>
+          sum +
+          Number(item.quantity || 0),
+        0
+      );
 
-    const pendingPacking = rows.filter(
-      (o) =>
-        o.fulfillment_status === "received" ||
-        o.fulfillment_status === "picking" ||
-        o.fulfillment_status === "packing" ||
-        !o.fulfillment_status
-    ).length;
+    const todayCod =
+      orderRows.reduce(
+        (sum, item) =>
+          sum +
+          Number(item.total || 0),
+        0
+      );
 
-    const packed = rows.filter(
-      (o) => o.fulfillment_status === "packed"
-    ).length;
+    // Fulfillment Stats
+    const pendingPacking =
+      queueRows.filter(
+        (o) =>
+          o.fulfillment_status ===
+          "received"
+      ).length;
 
-    const dispatched = rows.filter(
-      (o) => o.fulfillment_status === "dispatched"
-    ).length;
+    const dispatched =
+      queueRows.filter(
+        (o) =>
+          o.fulfillment_status ===
+          "dispatched"
+      ).length;
 
-    const delivered = rows.filter(
-      (o) => o.courier_status === "delivered"
-    ).length;
-
-    const totalQty = rows.reduce(
-      (sum, item) => sum + Number(item.quantity || 0),
-      0
-    );
-
-    const todayCod = rows.reduce(
-      (sum, item) => sum + Number(item.total || 0),
-      0
-    );
+    const delivered =
+      queueRows.filter(
+        (o) =>
+          o.fulfillment_status ===
+          "delivered"
+      ).length;
 
     return NextResponse.json({
       success: true,
 
-      totalRows: rows.length,
-      uniqueOrders: uniqueOrders.size,
-
       todayOrders,
       pendingPacking,
-      packed,
+      packed: 0,
       dispatched,
       delivered,
       totalQty,
       todayCod,
     });
   } catch (error) {
-    console.error("Fulfillment Stats Error:", error);
+    console.error(
+      "Fulfillment Stats Error:",
+      error
+    );
 
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to load fulfillment stats",
       },
       {
         status: 500,
