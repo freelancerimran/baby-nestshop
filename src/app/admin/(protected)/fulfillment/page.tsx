@@ -90,13 +90,13 @@ const startCameraScanner = async () => {
 
     await html5QrCode.start(
       {
-        facingMode: "environment",
+          facingMode: "environment",
       },
       {
 fps: 20,
 qrbox: {
-  width: 320,
-  height: 120,
+  width: 420,
+  height: 180,
 },
 aspectRatio: 1.7778,
       },
