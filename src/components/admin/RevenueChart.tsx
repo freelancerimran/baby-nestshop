@@ -30,14 +30,12 @@ interface RevenueChartProps {
 export default function RevenueChart({
   orders,
 }: RevenueChartProps) {
-
   const revenueByDate: Record<
     string,
     number
   > = {};
 
   orders.forEach((order) => {
-
     const rawDate =
       order.date ||
       new Date().toISOString();
@@ -64,13 +62,12 @@ export default function RevenueChart({
       Number(
         order.total || 0
       );
-
   });
 
   const labels =
     Object.keys(
       revenueByDate
-    );
+    ).slice(-7);
 
   const revenues =
     labels.map(
@@ -80,28 +77,53 @@ export default function RevenueChart({
         ]
     );
 
+  const totalRevenue =
+    revenues.reduce(
+      (sum, value) =>
+        sum + value,
+      0
+    );
+
+  const totalOrders =
+    orders.length;
+
+  const avgOrderValue =
+    totalOrders > 0
+      ? Math.round(
+          totalRevenue /
+            totalOrders
+        )
+      : 0;
+
   const data = {
     labels,
+
     datasets: [
       {
         label: "Revenue",
+
         data: revenues,
 
         borderColor:
-          "#4f46e5",
+          "#2563eb",
 
         backgroundColor:
-          "rgba(79,70,229,0.15)",
+          "rgba(37,99,235,0.15)",
 
         fill: true,
 
-        tension: 0.45,
+        tension: 0.6,
 
-        borderWidth: 3,
+        borderWidth: 5,
 
-        pointRadius: 4,
+        pointRadius: 0,
 
-        pointHoverRadius: 6,
+        pointHoverRadius: 8,
+
+        pointHoverBorderWidth: 3,
+
+        pointHoverBackgroundColor:
+          "#2563eb",
       },
     ],
   };
@@ -121,7 +143,7 @@ export default function RevenueChart({
           label: function (
             context: any
           ) {
-            return `৳${context.raw.toLocaleString()}`;
+            return `Revenue: ৳${context.raw.toLocaleString()}`;
           },
         },
       },
@@ -149,21 +171,69 @@ export default function RevenueChart({
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
 
-      <div className="mb-6">
+      {/* Header */}
 
-        <h2 className="text-xl font-semibold">
-          Revenue Trend
-        </h2>
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
 
-        <p className="text-sm text-slate-500">
-          Revenue performance overview
-        </p>
+        <div>
+          <h2 className="text-2xl font-bold">
+            Revenue Analytics
+          </h2>
+
+          <p className="text-sm text-slate-500">
+            Last 7 days revenue performance
+          </p>
+        </div>
+
+        <div className="rounded-full bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
+          ↗ Growing Revenue
+        </div>
 
       </div>
 
-      <div className="h-[350px]">
+      {/* KPI Cards */}
+
+      <div className="mb-8 grid gap-4 md:grid-cols-3">
+
+        <div className="rounded-2xl bg-blue-50 p-4 shadow-sm">
+          <p className="text-sm text-slate-500">
+            Revenue
+          </p>
+
+          <h3 className="mt-2 text-2xl font-bold">
+            ৳
+            {totalRevenue.toLocaleString()}
+          </h3>
+        </div>
+
+        <div className="rounded-2xl bg-green-50 p-4">
+          <p className="text-sm text-slate-500">
+            Orders
+          </p>
+
+          <h3 className="mt-2 text-2xl font-bold">
+            {totalOrders}
+          </h3>
+        </div>
+
+        <div className="rounded-2xl bg-purple-50 p-4">
+          <p className="text-sm text-slate-500">
+            Avg Order Value
+          </p>
+
+          <h3 className="mt-2 text-2xl font-bold">
+            ৳
+            {avgOrderValue.toLocaleString()}
+          </h3>
+        </div>
+
+      </div>
+
+      {/* Chart */}
+
+      <div className="h-[420px]">
 
         <Line
           data={data}
