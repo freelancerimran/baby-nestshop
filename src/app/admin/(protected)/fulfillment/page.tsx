@@ -61,6 +61,7 @@ const [scanMessage, setScanMessage] = useState("");
 const [scanLoading, setScanLoading] = useState(false);
 const [cameraOpen, setCameraOpen] = useState(false);
 const [scannerRunning, setScannerRunning] = useState(false);
+const [processingScan, setProcessingScan] = useState(false);
 
 const startCameraScanner = async () => {
   if (scannerRunning) return;
@@ -99,69 +100,65 @@ qrbox: {
 },
 aspectRatio: 1.7778,
       },
-      async (decodedText) => {
-        try {
-          const res = await fetch(
-            "/api/admin/fulfillment/scan",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-              body: JSON.stringify({
-                consignmentId:
-                  decodedText,
-              }),
-            }
-          );
+async (decodedText) => {
+  if (processingScan) return;
 
-          const data =
-            await res.json();
+  setProcessingScan(true);
 
-          if (data.success) {
-            setScanMessage(
-              "✅ Added To Queue"
-            );
+  try {
+    const res = await fetch(
+      "/api/admin/fulfillment/scan",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          consignmentId:
+            decodedText,
+        }),
+      }
+    );
 
-            setScanInput("");
+    const data =
+      await res.json();
 
-            await loadQueue();
-            await loadStats();
-          } else {
-            setScanMessage(
-              `❌ ${
-                data.message ||
-                "Already Scanned"
-              }`
-            );
-          }
+    if (data.success) {
+      setScanMessage(
+        "✅ Added To Queue"
+      );
 
-setCameraOpen(false);
-setScannerRunning(false);
+      setScanInput("");
 
-try {
-  await html5QrCode.clear();
-} catch (e) {
-  console.log("scanner cleanup");
-}
-        } catch (error: any) {
-          console.error(
-            "SCAN PROCESS ERROR:",
-            error
-          );
+      await loadQueue();
+      await loadStats();
+    } else {
+      setScanMessage(
+        `❌ ${
+          data.message ||
+          "Already Scanned"
+        }`
+      );
+    }
+  } catch (error: any) {
+    console.error(
+      "SCAN PROCESS ERROR:",
+      error
+    );
 
-          setScanMessage(
-            `❌ ${
-              error?.message ||
-              "Scan Failed"
-            }`
-          );
-
-          setCameraOpen(false);
-          setScannerRunning(false);
-        }
-      },
+    setScanMessage(
+      `❌ ${
+        error?.message ||
+        "Scan Failed"
+      }`
+    );
+  } finally {
+    setTimeout(() => {
+      setProcessingScan(false);
+    }, 1500);
+  }
+},
       () => {}
     );
   } catch (error: any) {
