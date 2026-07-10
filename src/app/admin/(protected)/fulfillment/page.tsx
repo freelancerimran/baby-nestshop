@@ -96,7 +96,7 @@ const startCameraScanner = async () => {
 fps: 20,
 qrbox: {
   width: 320,
-  height: 120,
+  height: 80,
 },
 aspectRatio: 1.7778,
       },
