@@ -76,9 +76,22 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
 
-    if (insertError) {
-      throw insertError;
-    }
+if (insertError) {
+  if (
+    insertError.message?.includes("duplicate") ||
+    insertError.code === "23505"
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Already Scanned",
+      },
+      { status: 409 }
+    );
+  }
+
+  throw insertError;
+}
 
     // Update Order Status
     await supabaseAdmin
