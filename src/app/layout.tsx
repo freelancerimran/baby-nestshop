@@ -22,9 +22,39 @@ const notoBangla = Noto_Sans_Bengali({
 });
 
 export const metadata: Metadata = {
-  title: "Baby Nest",
+  metadataBase: new URL(
+    "https://www.baby-nestshop.com"
+  ),
+
+  title: {
+    default: "Baby Nest",
+    template: "%s | Baby Nest",
+  },
+
   description:
     "Educational books and learning toys for growing minds.",
+
+  alternates: {
+    canonical: "/",
+  },
+
+  robots: {
+    index: true,
+    follow: true,
+
+    googleBot: {
+      index: true,
+      follow: true,
+    },
+  },
+
+  // Search Console verification
+  // Google থেকে verification code পাওয়ার পর
+  // নিচের অংশ uncomment করবে।
+  //
+  // verification: {
+  //   google: "YOUR_GOOGLE_VERIFICATION_CODE",
+  // },
 };
 
 export default function RootLayout({
@@ -37,7 +67,7 @@ export default function RootLayout({
       lang="en"
       className={`${plusJakarta.variable} ${notoBangla.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="flex min-h-full flex-col">
         <FacebookPixel />
 
         <LayoutWrapper>
@@ -51,7 +81,6 @@ export default function RootLayout({
         <LayoutWrapper>
           <Footer />
         </LayoutWrapper>
-
       </body>
     </html>
   );
