@@ -1,15 +1,43 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-export async function POST(req: NextRequest) {
+import {
+  processDeliveredOrder,
+} from "@/lib/finance/process-delivered-order";
+
+import {
+  processCancelledOrder,
+} from "@/lib/inventory/process-cancelled-order";
+
+/*
+==========================================
+UPDATE SINGLE COURIER STATUS
+==========================================
+*/
+
+export async function POST(
+  req: NextRequest
+) {
   try {
-    const { orderId } = await req.json();
+    /*
+    ========================================
+    GET ORDER ID
+    ========================================
+    */
+
+    const { orderId } =
+      await req.json();
 
     if (!orderId) {
       return NextResponse.json(
         {
           success: false,
-          message: "Order ID required",
+          message:
+            "Order ID required",
         },
         {
           status: 400,
@@ -17,20 +45,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get Order
+    /*
+    ========================================
+    GET ORDER
+    ========================================
+    */
 
-    const { data: order, error } =
-      await supabaseAdmin
-        .from("orders")
-        .select("*")
-        .eq("order_id", orderId)
-        .single();
+    const {
+      data: order,
+      error: orderError,
+    } = await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq(
+        "order_id",
+        orderId
+      )
+      .single();
 
-    if (error || !order) {
+    if (
+      orderError ||
+      !order
+    ) {
+      console.error(
+        "ORDER FETCH ERROR:",
+        orderError
+      );
+
       return NextResponse.json(
         {
           success: false,
-          message: "Order not found",
+          message:
+            "Order not found",
         },
         {
           status: 404,
@@ -38,11 +84,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!order.consignment_id) {
+    /*
+    ========================================
+    CONSIGNMENT CHECK
+    ========================================
+    */
+
+    if (
+      !order.consignment_id
+    ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Consignment ID not found",
+          message:
+            "Consignment ID not found",
         },
         {
           status: 400,
@@ -50,38 +105,60 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get Status From Steadfast
+    /*
+    ========================================
+    GET STATUS FROM STEADFAST
+    ========================================
+    */
 
-    const response = await fetch(
-      `https://portal.packzy.com/api/v1/status_by_cid/${order.consignment_id}`,
-      {
-        method: "GET",
-        headers: {
-          "Api-Key":
-            process.env.STEADFAST_API_KEY!,
+    const response =
+      await fetch(
+        `https://portal.packzy.com/api/v1/status_by_cid/${order.consignment_id}`,
+        {
+          method: "GET",
 
-          "Secret-Key":
-            process.env.STEADFAST_SECRET_KEY!,
+          headers: {
+            "Api-Key":
+              process.env
+                .STEADFAST_API_KEY!,
 
-          "Content-Type":
-            "application/json",
-        },
-      }
-    );
+            "Secret-Key":
+              process.env
+                .STEADFAST_SECRET_KEY!,
 
-    const result = await response.json();
+            "Content-Type":
+              "application/json",
+          },
+
+          cache: "no-store",
+        }
+      );
+
+    const result =
+      await response.json();
 
     console.log(
       "COURIER STATUS RESPONSE:",
       result
     );
 
-    if (result.status !== 200) {
+    /*
+    ========================================
+    STEADFAST RESPONSE CHECK
+    ========================================
+    */
+
+    if (
+      !response.ok ||
+      result.status !== 200
+    ) {
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Unable to fetch courier status",
+
           result,
         },
         {
@@ -90,21 +167,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    /*
+    ========================================
+    COURIER STATUS
+    ========================================
+    */
+
     const courierStatus =
-      result.delivery_status || "unknown";
+      String(
+        result.delivery_status ||
+          "unknown"
+      )
+        .trim()
+        .toLowerCase();
+
+    /*
+    ========================================
+    ORDER STATUS MAPPING
+    ========================================
+    */
 
     let orderStatus =
-      order.status || "Processing";
+      order.status ||
+      "Processing";
 
-    // Status Mapping
+    // -----------------------------
+    // Delivered
+    // -----------------------------
 
     if (
-      courierStatus === "delivered" ||
+      courierStatus ===
+        "delivered" ||
       courierStatus ===
         "delivered_approval_pending"
     ) {
-      orderStatus = "Delivered";
+      orderStatus =
+        "Delivered";
     }
+
+    // -----------------------------
+    // Partial Delivered
+    // -----------------------------
 
     if (
       courierStatus ===
@@ -116,21 +219,50 @@ export async function POST(req: NextRequest) {
         "Partial Delivered";
     }
 
+    // -----------------------------
+    // Cancelled
+    // -----------------------------
+
     if (
-      courierStatus === "cancelled" ||
+      courierStatus ===
+        "cancelled" ||
       courierStatus ===
         "cancelled_approval_pending"
     ) {
-      orderStatus = "Cancelled";
+      orderStatus =
+        "Cancelled";
     }
 
+    // -----------------------------
+    // Processing
+    // -----------------------------
+
     if (
-      courierStatus === "pending" ||
-      courierStatus === "in_review" ||
-      courierStatus === "hold"
+      courierStatus ===
+        "pending" ||
+      courierStatus ===
+        "in_review" ||
+      courierStatus ===
+        "hold"
     ) {
-      orderStatus = "Processing";
+      orderStatus =
+        "Processing";
     }
+
+    /*
+    ========================================
+    UPDATE ORDER
+    ========================================
+
+    IMPORTANT:
+
+    Save courier_status BEFORE running
+    Finance / Inventory processors.
+
+    Both processors validate the current
+    database state.
+    ========================================
+    */
 
     const {
       error: updateError,
@@ -140,7 +272,8 @@ export async function POST(req: NextRequest) {
         courier_status:
           courierStatus,
 
-        status: orderStatus,
+        status:
+          orderStatus,
 
         last_status_sync:
           new Date().toISOString(),
@@ -151,9 +284,15 @@ export async function POST(req: NextRequest) {
       );
 
     if (updateError) {
+      console.error(
+        "ORDER STATUS UPDATE ERROR:",
+        updateError
+      );
+
       return NextResponse.json(
         {
           success: false,
+
           message:
             updateError.message,
         },
@@ -163,12 +302,171 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    /*
+    ========================================
+    RESULT HOLDERS
+    ========================================
+    */
+
+    let financeResult:
+      Awaited<
+        ReturnType<
+          typeof processDeliveredOrder
+        >
+      > | null = null;
+
+    let stockRestoreResult:
+      Awaited<
+        ReturnType<
+          typeof processCancelledOrder
+        >
+      > | null = null;
+
+    /*
+    ========================================
+    DELIVERED → FINANCE AUTOMATION
+    ========================================
+
+    Only CONFIRMED:
+
+    courier_status = delivered
+
+    is financially realised.
+
+    delivered_approval_pending does NOT
+    process Finance yet.
+
+    Duplicate protection is handled by
+    the PostgreSQL Finance RPC.
+    ========================================
+    */
+
+    if (
+      courierStatus ===
+      "delivered"
+    ) {
+      try {
+        financeResult =
+          await processDeliveredOrder(
+            String(orderId)
+          );
+
+        console.log(
+          "FINANCE PROCESS RESULT:",
+          financeResult
+        );
+      } catch (
+        financeError
+      ) {
+        console.error(
+          "FINANCE PROCESS ERROR:",
+          financeError
+        );
+
+        financeResult = {
+          success: false,
+
+          message:
+            financeError instanceof Error
+              ? financeError.message
+              : "Finance processing failed.",
+        };
+      }
+    }
+
+    /*
+    ========================================
+    CANCELLED → STOCK RESTORE
+    ========================================
+
+    Only CONFIRMED:
+
+    courier_status = cancelled
+
+    restores product stock.
+
+    cancelled_approval_pending does NOT
+    restore stock yet.
+
+    PostgreSQL RPC handles:
+
+    - duplicate protection
+    - row locking
+    - real_stock restoration
+    - display_stock restoration
+    - product status restoration
+    - stock_restored flag
+    - transaction safety
+    ========================================
+    */
+
+    if (
+      courierStatus ===
+      "cancelled"
+    ) {
+      try {
+        stockRestoreResult =
+          await processCancelledOrder(
+            String(orderId)
+          );
+
+        console.log(
+          "CANCELLED STOCK RESTORE RESULT:",
+          stockRestoreResult
+        );
+      } catch (
+        stockRestoreError
+      ) {
+        /*
+        ====================================
+        IMPORTANT
+
+        Courier status has already been
+        updated successfully.
+
+        Inventory processing failure must
+        not destroy that courier update.
+        ====================================
+        */
+
+        console.error(
+          "CANCELLED STOCK RESTORE ERROR:",
+          stockRestoreError
+        );
+
+        stockRestoreResult = {
+          success: false,
+
+          message:
+            stockRestoreError instanceof Error
+              ? stockRestoreError.message
+              : "Stock restoration failed.",
+        };
+      }
+    }
+
+    /*
+    ========================================
+    SUCCESS RESPONSE
+    ========================================
+    */
+
     return NextResponse.json({
       success: true,
-      courierStatus,
-      orderStatus,
-    });
 
+      orderId:
+        String(orderId),
+
+      courierStatus,
+
+      orderStatus,
+
+      finance:
+        financeResult,
+
+      stockRestore:
+        stockRestoreResult,
+    });
   } catch (error) {
     console.error(
       "UPDATE STATUS ERROR:",
@@ -178,6 +476,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

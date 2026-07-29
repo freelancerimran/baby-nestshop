@@ -1,4 +1,7 @@
-import { NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -12,15 +15,110 @@ import {
 
 /*
 ==========================================
-SYNC ALL COURIER STATUS
+AUTO COURIER SYNC CRON
+==========================================
+
+PURPOSE:
+
+This endpoint is designed for automatic
+courier status synchronization.
+
+It is separate from:
+
+/api/admin/sync-all-courier-status
+
+So the existing manual Admin Sync button
+can continue working independently.
+
+FLOW:
+
+Vercel Cron
+    ↓
+Authorization Check
+    ↓
+Get Courier Orders
+    ↓
+Steadfast Status
+    ↓
+Update Order
+    ↓
+Delivered → Finance
+Cancelled → Stock Restore
 ==========================================
 */
 
-export async function POST() {
+/*
+==========================================
+GET
+==========================================
+
+Vercel Cron will call this endpoint
+using GET.
+==========================================
+*/
+
+export async function GET(
+  req: NextRequest
+) {
   try {
     /*
     ========================================
-    GET ALL COURIER ORDERS
+    CRON SECRET CHECK
+    ========================================
+    */
+
+    const cronSecret =
+      process.env.CRON_SECRET;
+
+    if (!cronSecret) {
+      console.error(
+        "CRON_SECRET is not configured."
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Cron secret is not configured.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const authorization =
+      req.headers.get(
+        "authorization"
+      );
+
+    if (
+      authorization !==
+      `Bearer ${cronSecret}`
+    ) {
+      console.warn(
+        "UNAUTHORIZED COURIER CRON REQUEST"
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Unauthorized",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    GET COURIER ORDERS
+    ========================================
+
+    Only orders that have a consignment ID
+    need courier synchronization.
     ========================================
     */
 
@@ -38,7 +136,7 @@ export async function POST() {
 
     if (ordersError) {
       console.error(
-        "SYNC ORDERS FETCH ERROR:",
+        "CRON ORDERS FETCH ERROR:",
         ordersError
       );
 
@@ -88,25 +186,29 @@ export async function POST() {
       try {
         /*
         ====================================
-        SAFETY CHECK
+        CONSIGNMENT SAFETY
         ====================================
         */
 
-        if (
-          !order.consignment_id
-        ) {
+        const consignmentId =
+          String(
+            order.consignment_id ||
+              ""
+          ).trim();
+
+        if (!consignmentId) {
           continue;
         }
 
         /*
         ====================================
-        GET STATUS FROM STEADFAST
+        GET STEADFAST STATUS
         ====================================
         */
 
         const response =
           await fetch(
-            `https://portal.packzy.com/api/v1/status_by_cid/${order.consignment_id}`,
+            `https://portal.packzy.com/api/v1/status_by_cid/${consignmentId}`,
             {
               method: "GET",
 
@@ -123,7 +225,8 @@ export async function POST() {
                   "application/json",
               },
 
-              cache: "no-store",
+              cache:
+                "no-store",
             }
           );
 
@@ -132,7 +235,7 @@ export async function POST() {
 
         /*
         ====================================
-        RESPONSE CHECK
+        STEADFAST RESPONSE CHECK
         ====================================
         */
 
@@ -141,13 +244,12 @@ export async function POST() {
           result.status !== 200
         ) {
           console.error(
-            "STEADFAST STATUS ERROR:",
+            "CRON STEADFAST STATUS ERROR:",
             {
               orderId:
                 order.order_id,
 
-              consignmentId:
-                order.consignment_id,
+              consignmentId,
 
               result,
             }
@@ -242,14 +344,7 @@ export async function POST() {
 
         /*
         ====================================
-        UPDATE ORDER
-        ====================================
-
-        Save courier_status before calling
-        Finance / Inventory processors.
-
-        Both processors validate current
-        database state.
+        UPDATE LOCAL ORDER
         ====================================
         */
 
@@ -265,7 +360,8 @@ export async function POST() {
               orderStatus,
 
             last_status_sync:
-              new Date().toISOString(),
+              new Date()
+                .toISOString(),
           })
           .eq(
             "order_id",
@@ -274,7 +370,7 @@ export async function POST() {
 
         if (updateError) {
           console.error(
-            "SYNC ORDER UPDATE ERROR:",
+            "CRON ORDER UPDATE ERROR:",
             {
               orderId:
                 order.order_id,
@@ -293,21 +389,7 @@ export async function POST() {
 
         /*
         ====================================
-        DELIVERED → FINANCE AUTOMATION
-        ====================================
-
-        Only confirmed:
-
-        courier_status = delivered
-
-        is financially realised.
-
-        delivered_approval_pending waits
-        for final confirmation.
-
-        Duplicate protection and transaction
-        safety are handled by the Finance
-        PostgreSQL RPC.
+        CONFIRMED DELIVERED → FINANCE
         ====================================
         */
 
@@ -326,7 +408,7 @@ export async function POST() {
               );
 
             console.log(
-              "BULK FINANCE RESULT:",
+              "CRON FINANCE RESULT:",
               {
                 orderId:
                   order.order_id,
@@ -347,17 +429,6 @@ export async function POST() {
               financeProcessedCount++;
             } else {
               financeFailedCount++;
-
-              console.error(
-                "BULK FINANCE FAILED:",
-                {
-                  orderId:
-                    order.order_id,
-
-                  result:
-                    financeResult,
-                }
-              );
             }
           } catch (
             financeError
@@ -365,7 +436,7 @@ export async function POST() {
             financeFailedCount++;
 
             console.error(
-              "BULK FINANCE ERROR:",
+              "CRON FINANCE ERROR:",
               {
                 orderId:
                   order.order_id,
@@ -379,28 +450,7 @@ export async function POST() {
 
         /*
         ====================================
-        CANCELLED → STOCK RESTORATION
-        ====================================
-
-        Only confirmed:
-
-        courier_status = cancelled
-
-        restores website product stock.
-
-        cancelled_approval_pending waits
-        for final confirmation.
-
-        The PostgreSQL RPC handles:
-
-        - duplicate protection
-        - order row locking
-        - product row locking
-        - real_stock restoration
-        - display_stock restoration
-        - product status restoration
-        - stock_restored flag
-        - transaction safety
+        CONFIRMED CANCELLED → STOCK RESTORE
         ====================================
         */
 
@@ -419,7 +469,7 @@ export async function POST() {
               );
 
             console.log(
-              "BULK CANCELLED STOCK RESULT:",
+              "CRON STOCK RESTORE RESULT:",
               {
                 orderId:
                   order.order_id,
@@ -440,17 +490,6 @@ export async function POST() {
               stockRestoredCount++;
             } else {
               stockRestoreFailedCount++;
-
-              console.error(
-                "BULK STOCK RESTORE FAILED:",
-                {
-                  orderId:
-                    order.order_id,
-
-                  result:
-                    stockResult,
-                }
-              );
             }
           } catch (
             stockError
@@ -458,7 +497,7 @@ export async function POST() {
             stockRestoreFailedCount++;
 
             console.error(
-              "BULK STOCK RESTORE ERROR:",
+              "CRON STOCK RESTORE ERROR:",
               {
                 orderId:
                   order.order_id,
@@ -469,17 +508,16 @@ export async function POST() {
             );
           }
         }
-      } catch (err) {
+      } catch (error) {
         failedCount++;
 
         console.error(
-          "SYNC ORDER ERROR:",
+          "CRON ORDER PROCESS ERROR:",
           {
             orderId:
               order.order_id,
 
-            error:
-              err,
+            error,
           }
         );
       }
@@ -494,50 +532,34 @@ export async function POST() {
     return NextResponse.json({
       success: true,
 
+      source:
+        "courier-cron",
+
       totalOrders:
         orders?.length || 0,
 
       updatedCount,
 
-      /*
-      ======================================
-      FINANCE SUMMARY
-      ======================================
-      */
-
       deliveredCount,
 
       financeProcessedCount,
-
       financeSkippedCount,
-
       financeFailedCount,
-
-      /*
-      ======================================
-      CANCELLED STOCK SUMMARY
-      ======================================
-      */
 
       cancelledCount,
 
       stockRestoredCount,
-
       stockRestoreSkippedCount,
-
       stockRestoreFailedCount,
 
-      /*
-      ======================================
-      GENERAL FAILURES
-      ======================================
-      */
-
       failedCount,
+
+      syncedAt:
+        new Date().toISOString(),
     });
   } catch (error) {
     console.error(
-      "SYNC ALL COURIER STATUS ERROR:",
+      "AUTO COURIER SYNC ERROR:",
       error
     );
 
@@ -548,7 +570,7 @@ export async function POST() {
         message:
           error instanceof Error
             ? error.message
-            : "Unknown error",
+            : "Automatic courier sync failed.",
       },
       {
         status: 500,

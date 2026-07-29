@@ -10,6 +10,7 @@ import {
   Boxes,
   Truck,
   BarChart3,
+  WalletCards,
   Settings,
   BadgeDollarSign,
 } from "lucide-react";
@@ -38,7 +39,7 @@ const menuItems = [
     icon: Boxes,
   },
   {
-    name: "fulfillment",
+    name: "Fulfillment",
     href: "/admin/fulfillment",
     icon: Truck,
   },
@@ -47,6 +48,14 @@ const menuItems = [
     href: "/admin/analytics",
     icon: BarChart3,
   },
+
+  // Finance & Investments
+  {
+    name: "Finance",
+    href: "/admin/finance",
+    icon: WalletCards,
+  },
+
   {
     name: "Facebook Pixel",
     href: "/admin/facebook-pixel",
@@ -64,15 +73,19 @@ export default function AdminSidebar() {
 
   return (
     <aside className="hidden h-screen w-72 flex-col border-r border-gray-200 bg-white lg:flex">
-      <div className="border-b border-gray-200 p-3 lg:p-6">
-<h1 className="hidden lg:block text-2xl font-bold text-blue-600">
-  Baby Nest ERP
-</h1>
+      {/* Brand */}
 
-<p className="hidden lg:block mt-1 text-sm text-gray-500">
-  Order & Inventory System
-</p>
+      <div className="border-b border-gray-200 p-3 lg:p-6">
+        <h1 className="hidden text-2xl font-bold text-blue-600 lg:block">
+          Baby Nest ERP
+        </h1>
+
+        <p className="mt-1 hidden text-sm text-gray-500 lg:block">
+          Order & Inventory System
+        </p>
       </div>
+
+      {/* Navigation */}
 
       <nav className="flex flex-1 flex-col p-4">
         <div className="space-y-2">
@@ -80,7 +93,12 @@ export default function AdminSidebar() {
             const Icon = item.icon;
 
             const isActive =
-              pathname === item.href;
+              item.href === "/admin"
+                ? pathname === "/admin"
+                : pathname === item.href ||
+                  pathname.startsWith(
+                    `${item.href}/`
+                  );
 
             return (
               <Link
@@ -94,13 +112,15 @@ export default function AdminSidebar() {
               >
                 <Icon size={20} />
 
-                <span className="hidden lg:block font-medium">
+                <span className="hidden font-medium lg:block">
                   {item.name}
                 </span>
               </Link>
             );
           })}
         </div>
+
+        {/* Logout */}
 
         <div className="mt-auto border-t border-gray-200 pt-4">
           <AdminLogoutButton />
