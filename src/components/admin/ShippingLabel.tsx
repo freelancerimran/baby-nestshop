@@ -4,13 +4,33 @@ import Barcode from "react-barcode";
 
 interface LabelOrder {
   orderId: string;
+
   customerName: string;
   phone: string;
   district: string;
   address: string;
+
   productName: string;
   quantity: number;
+
   total: number;
+
+  /*
+  ========================================
+  PAYMENT INFORMATION
+  ========================================
+  */
+
+  paidAmount?: number;
+  dueAmount?: number;
+  paymentStatus?: string;
+
+  /*
+  ========================================
+  COURIER INFORMATION
+  ========================================
+  */
+
   consignmentId?: string;
 }
 
@@ -19,6 +39,67 @@ export default function ShippingLabel({
 }: {
   order: LabelOrder;
 }) {
+  /*
+  ========================================
+  PAYMENT CALCULATION
+  ========================================
+
+  IMPORTANT:
+
+  dueAmount = 0 must remain 0.
+
+  We must NOT use:
+
+  order.dueAmount || order.total
+
+  because 0 is falsy and would incorrectly
+  fall back to the full order total.
+
+  ========================================
+  */
+
+  const total = Number(
+    order.total ?? 0
+  );
+
+  const paidAmount = Number(
+    order.paidAmount ?? 0
+  );
+
+  const dueAmount =
+    order.dueAmount !== undefined &&
+    order.dueAmount !== null
+      ? Math.max(
+          0,
+          Number(order.dueAmount)
+        )
+      : Math.max(
+          0,
+          total - paidAmount
+        );
+
+  /*
+  ========================================
+  PAYMENT STATUS
+  ========================================
+  */
+
+  const paymentStatus =
+    order.paymentStatus ||
+    (dueAmount <= 0 && total > 0
+      ? "Paid"
+      : paidAmount > 0
+        ? "Partially Paid"
+        : "Unpaid");
+
+  const isFullyPaid =
+    dueAmount <= 0 &&
+    total > 0;
+
+  const isPartiallyPaid =
+    paidAmount > 0 &&
+    dueAmount > 0;
+
   return (
     <div
       className="shipping-label"
@@ -30,7 +111,8 @@ export default function ShippingLabel({
         padding: "4mm",
         boxSizing: "border-box",
         background: "#fff",
-        fontFamily: "Arial, sans-serif",
+        fontFamily:
+          "Arial, sans-serif",
         display: "flex",
         flexDirection: "column",
       }}
@@ -40,7 +122,8 @@ export default function ShippingLabel({
       <div
         style={{
           textAlign: "center",
-          borderBottom: "2px solid #000",
+          borderBottom:
+            "2px solid #000",
           paddingBottom: "6px",
         }}
       >
@@ -142,31 +225,23 @@ export default function ShippingLabel({
 
         <div
           style={{
-            fontSize: "11px",
-            marginTop: "4px",
-            lineHeight: "1.35",
-          }}
-        >
-        
-           <div
-          style={{
             fontSize: "14px",
             fontWeight: "600",
-            marginTop: "2px",
+            marginTop: "6px",
+            lineHeight: "1.35",
           }}
         >
           {order.address}
         </div>
-        
-          <div
+
+        <div
           style={{
             fontSize: "14px",
             fontWeight: "600",
             marginTop: "2px",
           }}
         >
-           {order.district}
-        </div>
+          {order.district}
         </div>
       </div>
 
@@ -199,19 +274,52 @@ export default function ShippingLabel({
         </div>
       </div>
 
-      {/* COD */}
+      {/* PAYMENT / COD */}
 
       <div
         style={{
           marginTop: "6px",
           border: "3px solid #000",
           textAlign: "center",
-          padding: "8px",
-          fontSize: "20px",
-          fontWeight: "bold",
+          padding: "7px",
         }}
       >
-        COD ৳{order.total}
+        <div
+          style={{
+            fontSize: "20px",
+            fontWeight: "bold",
+          }}
+        >
+          {isFullyPaid
+            ? "PAID • COD ৳0"
+            : `COD ৳${dueAmount.toLocaleString()}`}
+        </div>
+
+        {isPartiallyPaid && (
+          <div
+            style={{
+              marginTop: "4px",
+              fontSize: "10px",
+              fontWeight: "bold",
+            }}
+          >
+            PARTIAL PAYMENT RECEIVED: ৳
+            {paidAmount.toLocaleString()}
+          </div>
+        )}
+
+        <div
+          style={{
+            marginTop: "3px",
+            fontSize: "9px",
+            fontWeight: "600",
+          }}
+        >
+          Order Total: ৳
+          {total.toLocaleString()}
+          {" • "}
+          Payment: {paymentStatus}
+        </div>
       </div>
 
       {/* BARCODE */}
@@ -227,7 +335,9 @@ export default function ShippingLabel({
         {order.consignmentId && (
           <>
             <Barcode
-              value={order.consignmentId}
+              value={
+                order.consignmentId
+              }
               width={1.8}
               height={70}
               displayValue={false}
@@ -256,7 +366,8 @@ export default function ShippingLabel({
           textAlign: "center",
           fontSize: "9px",
           fontWeight: "bold",
-          borderTop: "1px solid #ddd",
+          borderTop:
+            "1px solid #ddd",
           paddingTop: "4px",
         }}
       >

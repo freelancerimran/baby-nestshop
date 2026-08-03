@@ -1,17 +1,36 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-export async function POST(req: NextRequest) {
-  console.log("SEND TO COURIER API HIT");
+import {
+  supabaseAdmin,
+} from "@/lib/supabase-admin";
+
+export async function POST(
+  req: NextRequest
+) {
+  console.log(
+    "SEND TO COURIER API HIT"
+  );
 
   try {
-    const { orderId } = await req.json();
+    /*
+    ========================================
+    GET ORDER ID
+    ========================================
+    */
+
+    const {
+      orderId,
+    } = await req.json();
 
     if (!orderId) {
       return NextResponse.json(
         {
           success: false,
-          message: "Order ID required",
+          message:
+            "Order ID required",
         },
         {
           status: 400,
@@ -19,16 +38,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get Order
+    /*
+    ========================================
+    GET ORDER
+    ========================================
+    */
 
-    const { data: order, error } =
-      await supabaseAdmin
-        .from("orders")
-        .select("*")
-        .eq("order_id", orderId)
-        .single();
+    const {
+      data: order,
+      error,
+    } = await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq(
+        "order_id",
+        orderId
+      )
+      .single();
 
-    if (error || !order) {
+    if (
+      error ||
+      !order
+    ) {
       console.error(
         "ORDER FETCH ERROR:",
         error
@@ -37,7 +68,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "Order not found",
+          message:
+            "Order not found",
         },
         {
           status: 404,
@@ -50,16 +82,22 @@ export async function POST(req: NextRequest) {
       order.order_id
     );
 
-    // ==========================
-    // DUPLICATE PROTECTION
-    // ==========================
+    /*
+    ========================================
+    DUPLICATE PROTECTION
+    ========================================
+    */
 
-    if (order.consignment_id) {
+    if (
+      order.consignment_id
+    ) {
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Order already sent to courier",
+
           consignmentId:
             order.consignment_id,
         },
@@ -69,11 +107,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ==========================
-    // BASIC VALIDATION
-    // ==========================
+    /*
+    ========================================
+    BASIC VALIDATION
+    ========================================
+    */
 
-    if (!order.customer_name) {
+    if (
+      !order.customer_name
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -86,7 +128,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!order.phone) {
+    if (
+      !order.phone
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -99,7 +143,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!order.address) {
+    if (
+      !order.address
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -112,49 +158,136 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ==========================
-    // SEND TO STEADFAST
-    // ==========================
+    /*
+    ========================================
+    CALCULATE COURIER COD AMOUNT
+    ========================================
 
-    const steadfastResponse = await fetch(
-      "https://portal.packzy.com/api/v1/create_order",
+    Payment rules:
+
+    Unpaid:
+    total = 929
+    paid = 0
+    due = 929
+    COD = 929
+
+    Partially Paid:
+    total = 929
+    paid = 500
+    due = 429
+    COD = 429
+
+    Fully Paid:
+    total = 929
+    paid = 929
+    due = 0
+    COD = 0
+
+    Backward compatibility:
+
+    If an old order does not have a
+    due_amount value, order.total will
+    automatically be used instead.
+    ========================================
+    */
+
+    const codAmount =
+      Math.max(
+        0,
+        Number(
+          order.due_amount ??
+            order.total ??
+            0
+        )
+      );
+
+    console.log(
+      "COURIER PAYMENT:",
       {
-        method: "POST",
+        orderId:
+          order.order_id,
 
-        headers: {
-          "Api-Key":
-            process.env.STEADFAST_API_KEY!,
+        total:
+          Number(
+            order.total || 0
+          ),
 
-          "Secret-Key":
-            process.env.STEADFAST_SECRET_KEY!,
+        paidAmount:
+          Number(
+            order.paid_amount ||
+              0
+          ),
 
-          "Content-Type":
-            "application/json",
-        },
+        dueAmount:
+          order.due_amount,
 
-        body: JSON.stringify({
-          invoice: order.order_id,
-
-          recipient_name:
-            order.customer_name,
-
-          recipient_phone:
-            order.phone,
-
-          recipient_address:
-            order.address,
-
-          cod_amount:
-            Number(order.total),
-
-          item_description:
-            "Baby Nest Product",
-
-          note:
-            "Baby Nest Order",
-        }),
+        codAmount,
       }
     );
+
+    /*
+    ========================================
+    SEND TO STEADFAST
+    ========================================
+    */
+
+    const steadfastResponse =
+      await fetch(
+        "https://portal.packzy.com/api/v1/create_order",
+        {
+          method: "POST",
+
+          headers: {
+            "Api-Key":
+              process.env
+                .STEADFAST_API_KEY!,
+
+            "Secret-Key":
+              process.env
+                .STEADFAST_SECRET_KEY!,
+
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            invoice:
+              order.order_id,
+
+            recipient_name:
+              order.customer_name,
+
+            recipient_phone:
+              order.phone,
+
+            recipient_address:
+              order.address,
+
+            /*
+            ================================
+            IMPORTANT:
+            Courier receives only the
+            customer's remaining due.
+            ================================
+            */
+
+            cod_amount:
+              codAmount,
+
+            item_description:
+              "Baby Nest Product",
+
+            note:
+              "Baby Nest Order",
+          }),
+        }
+      );
+
+    /*
+    ========================================
+    READ STEADFAST RESPONSE
+    ========================================
+    */
 
     const result =
       await steadfastResponse.json();
@@ -168,12 +301,36 @@ export async function POST(req: NextRequest) {
       )
     );
 
-    if (!result.consignment) {
+    /*
+    ========================================
+    STEADFAST ERROR CHECK
+    ========================================
+    */
+
+    if (
+      !steadfastResponse.ok ||
+      !result.consignment
+    ) {
+      console.error(
+        "STEADFAST CREATE ERROR:",
+        {
+          status:
+            steadfastResponse.status,
+
+          orderId:
+            order.order_id,
+
+          result,
+        }
+      );
+
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Steadfast create failed",
+
           result,
         },
         {
@@ -182,37 +339,42 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ==========================
-    // SAVE RESULT
-    // ==========================
+    /*
+    ========================================
+    SAVE COURIER RESULT
+    ========================================
+    */
 
-    const { error: updateError } =
-      await supabaseAdmin
-        .from("orders")
-        .update({
-          consignment_id:
-            String(
-              result.consignment
-                .consignment_id
-            ),
-
-          tracking_code:
+    const {
+      error: updateError,
+    } = await supabaseAdmin
+      .from("orders")
+      .update({
+        consignment_id:
+          String(
             result.consignment
-              .tracking_code,
+              .consignment_id
+          ),
 
-          courier_status:
-            result.consignment
-              .status,
+        tracking_code:
+          result.consignment
+            .tracking_code,
 
-          status:
-            "Processing",
-        })
-        .eq(
-          "order_id",
-          orderId
-        );
+        courier_status:
+          result.consignment
+            .status,
 
-    if (updateError) {
+        status:
+          "Processing",
+      })
+      .eq(
+        "order_id",
+        orderId
+      );
+
+    if (
+      updateError
+    ) {
       console.error(
         "SUPABASE UPDATE ERROR:",
         updateError
@@ -221,8 +383,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Supabase update failed",
+
           error:
             updateError.message,
         },
@@ -231,6 +395,12 @@ export async function POST(req: NextRequest) {
         }
       );
     }
+
+    /*
+    ========================================
+    SUCCESS
+    ========================================
+    */
 
     return NextResponse.json({
       success: true,
@@ -246,9 +416,12 @@ export async function POST(req: NextRequest) {
       courierStatus:
         result.consignment
           .status,
-    });
 
-  } catch (error) {
+      codAmount,
+    });
+  } catch (
+    error
+  ) {
     console.error(
       "SEND TO COURIER ERROR:",
       error
@@ -257,6 +430,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

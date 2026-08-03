@@ -15,45 +15,39 @@ import {
 
 /*
 ==========================================
-AUTO COURIER SYNC CRON
+AUTO COURIER STATUS SYNC
 ==========================================
 
-PURPOSE:
+SOURCE OF TRUTH:
+Steadfast controls actual courier delivery
+and cancellation status.
 
-This endpoint is designed for automatic
-courier status synchronization.
+IMPORTANT:
 
-It is separate from:
+Warehouse / Fulfillment completion is
+completely separate from customer delivery.
 
-/api/admin/sync-all-courier-status
+FINAL RULES:
 
-So the existing manual Admin Sync button
-can continue working independently.
+Steadfast delivered
+→ Order Delivered
+→ Payment Paid
+→ Due 0
+→ Finance processing
 
-FLOW:
+Steadfast cancelled
+→ Order Cancelled
+→ Website stock restoration
 
-Vercel Cron
-    ↓
-Authorization Check
-    ↓
-Get Courier Orders
-    ↓
-Steadfast Status
-    ↓
-Update Order
-    ↓
-Delivered → Finance
-Cancelled → Stock Restore
-==========================================
-*/
+Approval pending states are NOT final.
 
-/*
-==========================================
-GET
-==========================================
+delivered_approval_pending
+→ Processing
+→ NO Finance
 
-Vercel Cron will call this endpoint
-using GET.
+cancelled_approval_pending
+→ Processing
+→ NO Stock Restore
 ==========================================
 */
 
@@ -63,7 +57,7 @@ export async function GET(
   try {
     /*
     ========================================
-    CRON SECRET CHECK
+    CRON AUTHORIZATION
     ========================================
     */
 
@@ -114,11 +108,7 @@ export async function GET(
 
     /*
     ========================================
-    GET COURIER ORDERS
-    ========================================
-
-    Only orders that have a consignment ID
-    need courier synchronization.
+    GET ALL ORDERS SENT TO COURIER
     ========================================
     */
 
@@ -144,7 +134,8 @@ export async function GET(
         {
           success: false,
           message:
-            ordersError.message,
+            ordersError.message ||
+            "Unable to load courier orders.",
         },
         {
           status: 500,
@@ -176,7 +167,7 @@ export async function GET(
 
     /*
     ========================================
-    PROCESS ORDERS
+    PROCESS EVERY COURIER ORDER
     ========================================
     */
 
@@ -186,14 +177,13 @@ export async function GET(
       try {
         /*
         ====================================
-        CONSIGNMENT SAFETY
+        VALIDATE CONSIGNMENT ID
         ====================================
         */
 
         const consignmentId =
           String(
-            order.consignment_id ||
-              ""
+            order.consignment_id || ""
           ).trim();
 
         if (!consignmentId) {
@@ -202,7 +192,7 @@ export async function GET(
 
         /*
         ====================================
-        GET STEADFAST STATUS
+        GET REAL STATUS FROM STEADFAST
         ====================================
         */
 
@@ -225,8 +215,7 @@ export async function GET(
                   "application/json",
               },
 
-              cache:
-                "no-store",
+              cache: "no-store",
             }
           );
 
@@ -235,13 +224,13 @@ export async function GET(
 
         /*
         ====================================
-        STEADFAST RESPONSE CHECK
+        VALIDATE STEADFAST RESPONSE
         ====================================
         */
 
         if (
           !response.ok ||
-          result.status !== 200
+          Number(result?.status) !== 200
         ) {
           console.error(
             "CRON STEADFAST STATUS ERROR:",
@@ -262,13 +251,13 @@ export async function GET(
 
         /*
         ====================================
-        COURIER STATUS
+        NORMALIZE COURIER STATUS
         ====================================
         */
 
         const courierStatus =
           String(
-            result.delivery_status ||
+            result?.delivery_status ||
               "unknown"
           )
             .trim()
@@ -276,7 +265,7 @@ export async function GET(
 
         /*
         ====================================
-        ORDER STATUS MAPPING
+        MAP COURIER → ORDER STATUS
         ====================================
         */
 
@@ -284,25 +273,41 @@ export async function GET(
           order.status ||
           "Processing";
 
-        // -----------------------------
-        // Delivered
-        // -----------------------------
+        /*
+        ------------------------------------
+        FINAL DELIVERED
+        ------------------------------------
+        */
 
         if (
           courierStatus ===
-            "delivered" ||
-          courierStatus ===
-            "delivered_approval_pending"
+          "delivered"
         ) {
           orderStatus =
             "Delivered";
         }
 
-        // -----------------------------
-        // Partial Delivered
-        // -----------------------------
+        /*
+        ------------------------------------
+        DELIVERY APPROVAL PENDING
+        ------------------------------------
+        */
 
-        if (
+        else if (
+          courierStatus ===
+          "delivered_approval_pending"
+        ) {
+          orderStatus =
+            "Processing";
+        }
+
+        /*
+        ------------------------------------
+        PARTIAL DELIVERY
+        ------------------------------------
+        */
+
+        else if (
           courierStatus ===
             "partial_delivered" ||
           courierStatus ===
@@ -312,25 +317,41 @@ export async function GET(
             "Partial Delivered";
         }
 
-        // -----------------------------
-        // Cancelled
-        // -----------------------------
+        /*
+        ------------------------------------
+        FINAL CANCELLED
+        ------------------------------------
+        */
 
-        if (
+        else if (
           courierStatus ===
-            "cancelled" ||
-          courierStatus ===
-            "cancelled_approval_pending"
+          "cancelled"
         ) {
           orderStatus =
             "Cancelled";
         }
 
-        // -----------------------------
-        // Processing
-        // -----------------------------
+        /*
+        ------------------------------------
+        CANCELLATION APPROVAL PENDING
+        ------------------------------------
+        */
 
-        if (
+        else if (
+          courierStatus ===
+          "cancelled_approval_pending"
+        ) {
+          orderStatus =
+            "Processing";
+        }
+
+        /*
+        ------------------------------------
+        ACTIVE COURIER STATES
+        ------------------------------------
+        */
+
+        else if (
           courierStatus ===
             "pending" ||
           courierStatus ===
@@ -344,15 +365,15 @@ export async function GET(
 
         /*
         ====================================
-        UPDATE LOCAL ORDER
+        BUILD ORDER UPDATE
         ====================================
         */
 
-        const {
-          error: updateError,
-        } = await supabaseAdmin
-          .from("orders")
-          .update({
+        const orderUpdate:
+          Record<
+            string,
+            unknown
+          > = {
             courier_status:
               courierStatus,
 
@@ -360,9 +381,65 @@ export async function GET(
               orderStatus,
 
             last_status_sync:
-              new Date()
-                .toISOString(),
-          })
+              new Date().toISOString(),
+          };
+
+        /*
+        ====================================
+        FINAL DELIVERY → CUSTOMER PAID
+        ====================================
+
+        Current Baby Nest flow is COD.
+
+        Confirmed Steadfast delivery means
+        customer received the parcel and
+        customer payment has been collected.
+
+        This does NOT mean courier settlement
+        to the business has necessarily
+        happened yet.
+        ====================================
+        */
+
+        if (
+          courierStatus ===
+          "delivered"
+        ) {
+          const orderTotal =
+            Number(
+              order.total || 0
+            );
+
+          orderUpdate.payment_status =
+            "Paid";
+
+          orderUpdate.paid_amount =
+            orderTotal;
+
+          orderUpdate.due_amount =
+            0;
+        }
+
+        /*
+        ====================================
+        UPDATE ORDER FIRST
+        ====================================
+
+        Finance / Inventory processors
+        validate current database state.
+
+        Therefore courier status must be
+        saved before those processors run.
+        ====================================
+        */
+
+        const {
+          error: updateError,
+        } = await supabaseAdmin
+          .from("orders")
+          .update(
+            orderUpdate
+          )
           .eq(
             "order_id",
             order.order_id
@@ -374,6 +451,8 @@ export async function GET(
             {
               orderId:
                 order.order_id,
+
+              courierStatus,
 
               error:
                 updateError,
@@ -389,7 +468,7 @@ export async function GET(
 
         /*
         ====================================
-        CONFIRMED DELIVERED → FINANCE
+        FINAL DELIVERED → FINANCE
         ====================================
         */
 
@@ -408,7 +487,7 @@ export async function GET(
               );
 
             console.log(
-              "CRON FINANCE RESULT:",
+              "CRON DELIVERED FINANCE RESULT:",
               {
                 orderId:
                   order.order_id,
@@ -423,12 +502,27 @@ export async function GET(
               financeResult.skipped
             ) {
               financeSkippedCount++;
-            } else if (
+            }
+
+            else if (
               financeResult.success
             ) {
               financeProcessedCount++;
-            } else {
+            }
+
+            else {
               financeFailedCount++;
+
+              console.error(
+                "CRON FINANCE FAILED:",
+                {
+                  orderId:
+                    order.order_id,
+
+                  result:
+                    financeResult,
+                }
+              );
             }
           } catch (
             financeError
@@ -450,7 +544,7 @@ export async function GET(
 
         /*
         ====================================
-        CONFIRMED CANCELLED → STOCK RESTORE
+        FINAL CANCELLED → STOCK RESTORE
         ====================================
         */
 
@@ -469,7 +563,7 @@ export async function GET(
               );
 
             console.log(
-              "CRON STOCK RESTORE RESULT:",
+              "CRON CANCELLED STOCK RESULT:",
               {
                 orderId:
                   order.order_id,
@@ -484,12 +578,27 @@ export async function GET(
               stockResult.skipped
             ) {
               stockRestoreSkippedCount++;
-            } else if (
+            }
+
+            else if (
               stockResult.success
             ) {
               stockRestoredCount++;
-            } else {
+            }
+
+            else {
               stockRestoreFailedCount++;
+
+              console.error(
+                "CRON STOCK RESTORE FAILED:",
+                {
+                  orderId:
+                    order.order_id,
+
+                  result:
+                    stockResult,
+                }
+              );
             }
           } catch (
             stockError
@@ -512,7 +621,7 @@ export async function GET(
         failedCount++;
 
         console.error(
-          "CRON ORDER PROCESS ERROR:",
+          "CRON SINGLE ORDER ERROR:",
           {
             orderId:
               order.order_id,
@@ -525,7 +634,7 @@ export async function GET(
 
     /*
     ========================================
-    SUCCESS RESPONSE
+    SUCCESS
     ========================================
     */
 
@@ -540,6 +649,8 @@ export async function GET(
 
       updatedCount,
 
+      failedCount,
+
       deliveredCount,
 
       financeProcessedCount,
@@ -551,8 +662,6 @@ export async function GET(
       stockRestoredCount,
       stockRestoreSkippedCount,
       stockRestoreFailedCount,
-
-      failedCount,
 
       syncedAt:
         new Date().toISOString(),

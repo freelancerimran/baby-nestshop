@@ -14,13 +14,57 @@ import {
 ==========================================
 SYNC ALL COURIER STATUS
 ==========================================
+
+FINAL PRODUCTION FLOW
+
+STEADFAST = source of truth for courier
+delivery / cancellation status.
+
+IMPORTANT:
+
+Fulfillment / Warehouse workflow is
+completely separate from this route.
+
+Fulfillment:
+- received
+- picking
+- packing
+- packed
+- dispatched / handover
+
+does NOT mean customer delivery.
+
+Only Steadfast confirmed "delivered"
+means:
+
+1. Order = Delivered
+2. Payment = Paid
+3. paid_amount = total
+4. due_amount = 0
+5. Finance processing starts
+
+Only Steadfast confirmed "cancelled"
+means:
+
+1. Order = Cancelled
+2. Website product stock is restored
+
+Product website stock was already
+deducted during order creation through
+create_order_with_stock().
+
+Finance investment sold_quantity is
+different from website product stock.
+It increases only after confirmed
+courier delivery.
+==========================================
 */
 
 export async function POST() {
   try {
     /*
     ========================================
-    GET ALL COURIER ORDERS
+    GET ALL ORDERS SENT TO COURIER
     ========================================
     */
 
@@ -46,7 +90,8 @@ export async function POST() {
         {
           success: false,
           message:
-            ordersError.message,
+            ordersError.message ||
+            "Unable to load courier orders.",
         },
         {
           status: 500,
@@ -78,7 +123,7 @@ export async function POST() {
 
     /*
     ========================================
-    PROCESS ORDERS
+    PROCESS EVERY COURIER ORDER
     ========================================
     */
 
@@ -88,25 +133,28 @@ export async function POST() {
       try {
         /*
         ====================================
-        SAFETY CHECK
+        VALIDATE CONSIGNMENT ID
         ====================================
         */
 
-        if (
-          !order.consignment_id
-        ) {
+        const consignmentId =
+          String(
+            order.consignment_id || ""
+          ).trim();
+
+        if (!consignmentId) {
           continue;
         }
 
         /*
         ====================================
-        GET STATUS FROM STEADFAST
+        GET REAL STATUS FROM STEADFAST
         ====================================
         */
 
         const response =
           await fetch(
-            `https://portal.packzy.com/api/v1/status_by_cid/${order.consignment_id}`,
+            `https://portal.packzy.com/api/v1/status_by_cid/${consignmentId}`,
             {
               method: "GET",
 
@@ -132,13 +180,13 @@ export async function POST() {
 
         /*
         ====================================
-        RESPONSE CHECK
+        VALIDATE STEADFAST RESPONSE
         ====================================
         */
 
         if (
           !response.ok ||
-          result.status !== 200
+          Number(result?.status) !== 200
         ) {
           console.error(
             "STEADFAST STATUS ERROR:",
@@ -146,8 +194,7 @@ export async function POST() {
               orderId:
                 order.order_id,
 
-              consignmentId:
-                order.consignment_id,
+              consignmentId,
 
               result,
             }
@@ -160,13 +207,13 @@ export async function POST() {
 
         /*
         ====================================
-        COURIER STATUS
+        NORMALIZE COURIER STATUS
         ====================================
         */
 
         const courierStatus =
           String(
-            result.delivery_status ||
+            result?.delivery_status ||
               "unknown"
           )
             .trim()
@@ -174,7 +221,18 @@ export async function POST() {
 
         /*
         ====================================
-        ORDER STATUS MAPPING
+        MAP COURIER STATUS → ORDER STATUS
+        ====================================
+
+        IMPORTANT:
+
+        delivered_approval_pending is NOT
+        final financial delivery.
+
+        cancelled_approval_pending is NOT
+        final confirmed cancellation.
+
+        We wait for final courier status.
         ====================================
         */
 
@@ -182,25 +240,41 @@ export async function POST() {
           order.status ||
           "Processing";
 
-        // -----------------------------
-        // Delivered
-        // -----------------------------
+        /*
+        ------------------------------------
+        FINAL DELIVERED
+        ------------------------------------
+        */
 
         if (
           courierStatus ===
-            "delivered" ||
-          courierStatus ===
-            "delivered_approval_pending"
+          "delivered"
         ) {
           orderStatus =
             "Delivered";
         }
 
-        // -----------------------------
-        // Partial Delivered
-        // -----------------------------
+        /*
+        ------------------------------------
+        DELIVERY APPROVAL PENDING
+        ------------------------------------
+        */
 
-        if (
+        else if (
+          courierStatus ===
+          "delivered_approval_pending"
+        ) {
+          orderStatus =
+            "Processing";
+        }
+
+        /*
+        ------------------------------------
+        PARTIAL DELIVERY
+        ------------------------------------
+        */
+
+        else if (
           courierStatus ===
             "partial_delivered" ||
           courierStatus ===
@@ -210,25 +284,41 @@ export async function POST() {
             "Partial Delivered";
         }
 
-        // -----------------------------
-        // Cancelled
-        // -----------------------------
+        /*
+        ------------------------------------
+        FINAL CANCELLED
+        ------------------------------------
+        */
 
-        if (
+        else if (
           courierStatus ===
-            "cancelled" ||
-          courierStatus ===
-            "cancelled_approval_pending"
+          "cancelled"
         ) {
           orderStatus =
             "Cancelled";
         }
 
-        // -----------------------------
-        // Processing
-        // -----------------------------
+        /*
+        ------------------------------------
+        CANCELLATION APPROVAL PENDING
+        ------------------------------------
+        */
 
-        if (
+        else if (
+          courierStatus ===
+          "cancelled_approval_pending"
+        ) {
+          orderStatus =
+            "Processing";
+        }
+
+        /*
+        ------------------------------------
+        ACTIVE / PROCESSING COURIER STATES
+        ------------------------------------
+        */
+
+        else if (
           courierStatus ===
             "pending" ||
           courierStatus ===
@@ -242,22 +332,15 @@ export async function POST() {
 
         /*
         ====================================
-        UPDATE ORDER
-        ====================================
-
-        Save courier_status before calling
-        Finance / Inventory processors.
-
-        Both processors validate current
-        database state.
+        BUILD ORDER UPDATE
         ====================================
         */
 
-        const {
-          error: updateError,
-        } = await supabaseAdmin
-          .from("orders")
-          .update({
+        const orderUpdate:
+          Record<
+            string,
+            unknown
+          > = {
             courier_status:
               courierStatus,
 
@@ -266,7 +349,75 @@ export async function POST() {
 
             last_status_sync:
               new Date().toISOString(),
-          })
+          };
+
+        /*
+        ====================================
+        CONFIRMED DELIVERY → PAYMENT PAID
+        ====================================
+
+        For current Baby Nest COD flow:
+
+        Steadfast confirmed delivered means
+        customer received the parcel and
+        COD was collected.
+
+        Therefore:
+
+        payment_status = Paid
+        paid_amount    = total
+        due_amount     = 0
+
+        IMPORTANT:
+
+        This represents CUSTOMER payment.
+
+        It does NOT necessarily mean
+        Steadfast has already settled the
+        money to the business bank/account.
+        ====================================
+        */
+
+        if (
+          courierStatus ===
+          "delivered"
+        ) {
+          const orderTotal =
+            Number(
+              order.total || 0
+            );
+
+          orderUpdate.payment_status =
+            "Paid";
+
+          orderUpdate.paid_amount =
+            orderTotal;
+
+          orderUpdate.due_amount =
+            0;
+        }
+
+        /*
+        ====================================
+        UPDATE ORDER DATABASE
+        ====================================
+
+        courier_status is saved BEFORE
+        Finance / Inventory processing.
+
+        This is required because both
+        processors validate the current
+        database state.
+        ====================================
+        */
+
+        const {
+          error: updateError,
+        } = await supabaseAdmin
+          .from("orders")
+          .update(
+            orderUpdate
+          )
           .eq(
             "order_id",
             order.order_id
@@ -278,6 +429,8 @@ export async function POST() {
             {
               orderId:
                 order.order_id,
+
+              courierStatus,
 
               error:
                 updateError,
@@ -293,21 +446,31 @@ export async function POST() {
 
         /*
         ====================================
-        DELIVERED → FINANCE AUTOMATION
+        CONFIRMED DELIVERED
+        → FINANCE AUTOMATION
         ====================================
 
-        Only confirmed:
+        Only exact:
 
         courier_status = delivered
 
-        is financially realised.
+        triggers Finance.
 
-        delivered_approval_pending waits
-        for final confirmation.
+        Finance PostgreSQL RPC handles:
 
-        Duplicate protection and transaction
-        safety are handled by the Finance
-        PostgreSQL RPC.
+        - delivered validation
+        - duplicate protection
+        - FIFO investment allocation
+        - sold_quantity update
+        - Finance ledger creation
+        - product COGS
+        - allocated extra cost
+        - landed cost
+        - product revenue
+        - gross profit
+        - finance_processed
+        - finance_processed_at
+        - transaction safety
         ====================================
         */
 
@@ -326,7 +489,7 @@ export async function POST() {
               );
 
             console.log(
-              "BULK FINANCE RESULT:",
+              "COURIER DELIVERED FINANCE RESULT:",
               {
                 orderId:
                   order.order_id,
@@ -336,20 +499,42 @@ export async function POST() {
               }
             );
 
+            /*
+            --------------------------------
+            ALREADY PROCESSED
+            --------------------------------
+            */
+
             if (
               financeResult.success &&
               financeResult.skipped
             ) {
               financeSkippedCount++;
-            } else if (
+            }
+
+            /*
+            --------------------------------
+            NEWLY PROCESSED
+            --------------------------------
+            */
+
+            else if (
               financeResult.success
             ) {
               financeProcessedCount++;
-            } else {
+            }
+
+            /*
+            --------------------------------
+            FINANCE FAILURE
+            --------------------------------
+            */
+
+            else {
               financeFailedCount++;
 
               console.error(
-                "BULK FINANCE FAILED:",
+                "COURIER FINANCE FAILED:",
                 {
                   orderId:
                     order.order_id,
@@ -365,7 +550,7 @@ export async function POST() {
             financeFailedCount++;
 
             console.error(
-              "BULK FINANCE ERROR:",
+              "COURIER FINANCE ERROR:",
               {
                 orderId:
                   order.order_id,
@@ -379,27 +564,27 @@ export async function POST() {
 
         /*
         ====================================
-        CANCELLED → STOCK RESTORATION
+        CONFIRMED CANCELLED
+        → WEBSITE STOCK RESTORATION
         ====================================
 
-        Only confirmed:
+        Only exact:
 
         courier_status = cancelled
 
         restores website product stock.
 
-        cancelled_approval_pending waits
-        for final confirmation.
+        PostgreSQL RPC handles:
 
-        The PostgreSQL RPC handles:
-
+        - confirmed cancelled validation
         - duplicate protection
-        - order row locking
-        - product row locking
+        - order locking
+        - product locking
         - real_stock restoration
         - display_stock restoration
         - product status restoration
         - stock_restored flag
+        - stock_restored_at
         - transaction safety
         ====================================
         */
@@ -419,7 +604,7 @@ export async function POST() {
               );
 
             console.log(
-              "BULK CANCELLED STOCK RESULT:",
+              "COURIER CANCELLED STOCK RESULT:",
               {
                 orderId:
                   order.order_id,
@@ -429,20 +614,42 @@ export async function POST() {
               }
             );
 
+            /*
+            --------------------------------
+            ALREADY RESTORED
+            --------------------------------
+            */
+
             if (
               stockResult.success &&
               stockResult.skipped
             ) {
               stockRestoreSkippedCount++;
-            } else if (
+            }
+
+            /*
+            --------------------------------
+            NEWLY RESTORED
+            --------------------------------
+            */
+
+            else if (
               stockResult.success
             ) {
               stockRestoredCount++;
-            } else {
+            }
+
+            /*
+            --------------------------------
+            STOCK RESTORE FAILURE
+            --------------------------------
+            */
+
+            else {
               stockRestoreFailedCount++;
 
               console.error(
-                "BULK STOCK RESTORE FAILED:",
+                "COURIER STOCK RESTORE FAILED:",
                 {
                   orderId:
                     order.order_id,
@@ -458,7 +665,7 @@ export async function POST() {
             stockRestoreFailedCount++;
 
             console.error(
-              "BULK STOCK RESTORE ERROR:",
+              "COURIER STOCK RESTORE ERROR:",
               {
                 orderId:
                   order.order_id,
@@ -473,7 +680,7 @@ export async function POST() {
         failedCount++;
 
         console.error(
-          "SYNC ORDER ERROR:",
+          "SYNC SINGLE ORDER ERROR:",
           {
             orderId:
               order.order_id,
@@ -487,21 +694,32 @@ export async function POST() {
 
     /*
     ========================================
-    SUCCESS RESPONSE
+    FINAL SUCCESS RESPONSE
     ========================================
     */
 
     return NextResponse.json({
       success: true,
 
+      message:
+        "Courier statuses synced successfully.",
+
+      /*
+      ======================================
+      GENERAL
+      ======================================
+      */
+
       totalOrders:
         orders?.length || 0,
 
       updatedCount,
 
+      failedCount,
+
       /*
       ======================================
-      FINANCE SUMMARY
+      DELIVERED / FINANCE
       ======================================
       */
 
@@ -515,7 +733,7 @@ export async function POST() {
 
       /*
       ======================================
-      CANCELLED STOCK SUMMARY
+      CANCELLED / INVENTORY
       ======================================
       */
 
@@ -526,14 +744,6 @@ export async function POST() {
       stockRestoreSkippedCount,
 
       stockRestoreFailedCount,
-
-      /*
-      ======================================
-      GENERAL FAILURES
-      ======================================
-      */
-
-      failedCount,
     });
   } catch (error) {
     console.error(
@@ -548,7 +758,7 @@ export async function POST() {
         message:
           error instanceof Error
             ? error.message
-            : "Unknown error",
+            : "Unknown courier sync error.",
       },
       {
         status: 500,

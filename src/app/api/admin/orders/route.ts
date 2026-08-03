@@ -3,6 +3,12 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
+    /*
+    ========================================
+    GET ALL ORDERS
+    ========================================
+    */
+
     const { data, error } = await supabase
       .from("orders")
       .select("*")
@@ -10,8 +16,17 @@ export async function GET() {
         ascending: false,
       });
 
+    /*
+    ========================================
+    DATABASE ERROR
+    ========================================
+    */
+
     if (error) {
-      console.error("SUPABASE ERROR:", error);
+      console.error(
+        "SUPABASE ORDERS ERROR:",
+        error
+      );
 
       return NextResponse.json(
         {
@@ -25,59 +40,237 @@ export async function GET() {
       );
     }
 
-    const orders = (data || []).map((order) => ({
-      orderId: order.order_id,
-      date: order.order_date,
+    /*
+    ========================================
+    MAP DATABASE DATA TO ADMIN UI
+    ========================================
+    */
 
-      productId: order.product_id,
-      productName: order.product_name,
-      productSlug: order.product_slug,
+    const orders = (data || []).map(
+      (order) => {
+        /*
+        ====================================
+        BASIC MONEY VALUES
+        ====================================
+        */
 
-customerName: order.customer_name,
-phone: order.phone,
+        const total = Number(
+          order.total ?? 0
+        );
 
-district: order.district,
-deliveryArea: order.delivery_area,
+        const paidAmount = Number(
+          order.paid_amount ?? 0
+        );
 
-address: order.address,
+        /*
+        ====================================
+        DUE AMOUNT
 
-      deliveryCharge: Number(
-        order.delivery_charge || 0
-      ),
+        IMPORTANT:
 
-      discount: Number(
-        order.discount || 0
-      ),
+        If database due_amount = 0,
+        it MUST remain 0.
 
-      couponCode: order.coupon_code,
+        We therefore do NOT use:
 
-      quantity: order.quantity,
+        order.due_amount || total
 
-      productPrice: Number(
-        order.product_price || 0
-      ),
+        because JavaScript treats 0
+        as a false value.
 
-      total: Number(order.total || 0),
+        Legacy orders where due_amount
+        is NULL are calculated safely
+        from total - paid amount.
+        ====================================
+        */
 
-      status: order.status,
+        const hasStoredDueAmount =
+          order.due_amount !== null &&
+          order.due_amount !== undefined;
 
-      trackingCode: order.tracking_code,
+        const dueAmount =
+          hasStoredDueAmount
+            ? Number(
+                order.due_amount
+              )
+            : Math.max(
+                0,
+                total - paidAmount
+              );
 
-      consignmentId: order.consignment_id,
+        /*
+        ====================================
+        PAYMENT STATUS FALLBACK
 
-      courierStatus: order.courier_status, 
+        Database value is preferred.
 
-      lastStatusSync: order.last_status_sync,
+        If an old order does not yet have
+        payment_status, calculate a safe
+        fallback for the Admin UI.
+        ====================================
+        */
 
-      paymentStatus: order.payment_status,
-    }));
+        let paymentStatus =
+          order.payment_status;
+
+        if (!paymentStatus) {
+          if (
+            total > 0 &&
+            paidAmount >= total
+          ) {
+            paymentStatus = "Paid";
+          } else if (
+            paidAmount > 0 &&
+            paidAmount < total
+          ) {
+            paymentStatus =
+              "Partially Paid";
+          } else {
+            paymentStatus = "Unpaid";
+          }
+        }
+
+        /*
+        ====================================
+        RETURN ORDER
+        ====================================
+        */
+
+        return {
+          /*
+          ----------------------------------
+          ORDER INFORMATION
+          ----------------------------------
+          */
+
+          orderId:
+            order.order_id,
+
+          date:
+            order.order_date,
+
+          /*
+          ----------------------------------
+          PRODUCT INFORMATION
+          ----------------------------------
+          */
+
+          productId:
+            order.product_id,
+
+          productName:
+            order.product_name,
+
+          productSlug:
+            order.product_slug,
+
+          quantity: Number(
+            order.quantity ?? 0
+          ),
+
+          productPrice: Number(
+            order.product_price ?? 0
+          ),
+
+          /*
+          ----------------------------------
+          CUSTOMER INFORMATION
+          ----------------------------------
+          */
+
+          customerName:
+            order.customer_name,
+
+          phone:
+            order.phone,
+
+          district:
+            order.district,
+
+          deliveryArea:
+            order.delivery_area,
+
+          address:
+            order.address,
+
+          /*
+          ----------------------------------
+          PRICE INFORMATION
+          ----------------------------------
+          */
+
+          deliveryCharge: Number(
+            order.delivery_charge ?? 0
+          ),
+
+          discount: Number(
+            order.discount ?? 0
+          ),
+
+          couponCode:
+            order.coupon_code,
+
+          total,
+
+          /*
+          ----------------------------------
+          PAYMENT INFORMATION
+          ----------------------------------
+          */
+
+          paidAmount,
+
+          dueAmount,
+
+          paymentStatus,
+
+          /*
+          ----------------------------------
+          ORDER STATUS
+          ----------------------------------
+          */
+
+          status:
+            order.status,
+
+          /*
+          ----------------------------------
+          COURIER INFORMATION
+          ----------------------------------
+          */
+
+          trackingCode:
+            order.tracking_code,
+
+          consignmentId:
+            order.consignment_id,
+
+          courierStatus:
+            order.courier_status,
+
+          lastStatusSync:
+            order.last_status_sync,
+        };
+      }
+    );
+
+    /*
+    ========================================
+    SUCCESS RESPONSE
+    ========================================
+    */
 
     return NextResponse.json({
       success: true,
       orders,
     });
-
   } catch (error) {
+    /*
+    ========================================
+    UNEXPECTED ERROR
+    ========================================
+    */
+
     console.error(
       "ORDERS API ERROR:",
       error
@@ -87,6 +280,7 @@ address: order.address,
       {
         success: false,
         orders: [],
+
         error:
           error instanceof Error
             ? error.message

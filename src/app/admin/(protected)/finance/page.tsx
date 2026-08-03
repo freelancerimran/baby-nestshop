@@ -11,8 +11,10 @@ import CreateInvestmentModal from "@/components/admin/finance/CreateInvestmentMo
 import InvestmentList from "@/components/admin/finance/InvestmentList";
 import InvestmentDetails from "@/components/admin/finance/InvestmentDetails";
 import EditInvestmentModal from "@/components/admin/finance/EditInvestmentModal";
+import FinanceSalesHistory from "@/components/admin/finance/FinanceSalesHistory";
 
 import type { Investment } from "@/types/finance";
+
 /*
 ==========================================
 TYPES
@@ -21,39 +23,30 @@ TYPES
 
 type FinanceSummary = {
   totalInvestment: number;
+
   potentialRevenue: number;
   potentialProfit: number;
+
   actualRevenue: number;
+
+  costOfGoods: number;
+  allocatedExtraCost: number;
+  realizedCost: number;
+
   realizedProfit: number;
+
   totalUnits: number;
   soldUnits: number;
   remainingUnits: number;
+
   roi: number;
+
+  recoveryPercentage: number;
+
+  salesCount: number;
+
   totalBatches: number;
 };
-
-type InvestmentItem = {
-  id?: number | string;
-
-  productId:
-    | number
-    | string
-    | null;
-
-  productName: string;
-
-  quantity: number;
-
-  unitCost: number;
-
-  sellingPrice: number;
-
-  soldQuantity?: number;
-
-  remainingQuantity?: number;
-};
-
-
 
 /*
 ==========================================
@@ -63,14 +56,28 @@ EMPTY SUMMARY
 
 const emptySummary: FinanceSummary = {
   totalInvestment: 0,
+
   potentialRevenue: 0,
   potentialProfit: 0,
+
   actualRevenue: 0,
+
+  costOfGoods: 0,
+  allocatedExtraCost: 0,
+  realizedCost: 0,
+
   realizedProfit: 0,
+
   totalUnits: 0,
   soldUnits: 0,
   remainingUnits: 0,
+
   roi: 0,
+
+  recoveryPercentage: 0,
+
+  salesCount: 0,
+
   totalBatches: 0,
 };
 
@@ -171,17 +178,28 @@ export default function FinancePage() {
 
         setError("");
 
+        /*
+        ====================================
+        FETCH FINANCE API
+        ====================================
+        */
+
         const response =
           await fetch(
             "/api/admin/finance/investments",
             {
-              cache:
-                "no-store",
+              cache: "no-store",
             }
           );
 
         const data =
           await response.json();
+
+        /*
+        ====================================
+        API ERROR
+        ====================================
+        */
 
         if (
           !response.ok ||
@@ -195,87 +213,174 @@ export default function FinancePage() {
         }
 
         /*
-        ======================================
+        ====================================
         SUMMARY
-        ======================================
+        ====================================
         */
 
+        const apiSummary =
+          data?.summary || {};
+
         setSummary({
+          /*
+          ================================
+          INVESTMENT
+          ================================
+          */
+
           totalInvestment:
             Number(
-              data?.summary
-                ?.totalInvestment ||
+              apiSummary
+                .totalInvestment ||
                 0
             ),
 
+          /*
+          ================================
+          POTENTIAL
+          ================================
+          */
+
           potentialRevenue:
             Number(
-              data?.summary
-                ?.potentialRevenue ||
+              apiSummary
+                .potentialRevenue ||
                 0
             ),
 
           potentialProfit:
             Number(
-              data?.summary
-                ?.potentialProfit ||
+              apiSummary
+                .potentialProfit ||
                 0
             ),
+
+          /*
+          ================================
+          ACTUAL SALES
+          ================================
+          */
 
           actualRevenue:
             Number(
-              data?.summary
-                ?.actualRevenue ||
+              apiSummary
+                .actualRevenue ||
                 0
             ),
+
+          /*
+          ================================
+          ACTUAL COST
+          ================================
+          */
+
+          costOfGoods:
+            Number(
+              apiSummary
+                .actualProductCost ??
+                apiSummary
+                  .costOfGoods ??
+                0
+            ),
+
+          allocatedExtraCost:
+            Number(
+              apiSummary
+                .allocatedExtraCost ||
+                0
+            ),
+
+          realizedCost:
+            Number(
+              apiSummary
+                .realizedCost ||
+                0
+            ),
+
+          /*
+          ================================
+          REALIZED PROFIT
+          ================================
+          */
 
           realizedProfit:
             Number(
-              data?.summary
-                ?.realizedProfit ||
+              apiSummary
+                .realizedProfit ||
                 0
             ),
 
+          /*
+          ================================
+          INVENTORY QUANTITY
+          ================================
+          */
+
           totalUnits:
             Number(
-              data?.summary
-                ?.totalUnits ||
+              apiSummary
+                .totalUnits ||
                 0
             ),
 
           soldUnits:
             Number(
-              data?.summary
-                ?.soldUnits ||
+              apiSummary
+                .soldUnits ||
                 0
             ),
 
           remainingUnits:
             Number(
-              data?.summary
-                ?.remainingUnits ||
+              apiSummary
+                .remainingUnits ||
                 0
             ),
 
+          /*
+          ================================
+          PERFORMANCE
+          ================================
+          */
+
           roi:
             Number(
-              data?.summary
-                ?.roi ||
+              apiSummary.roi ||
+                0
+            ),
+
+          recoveryPercentage:
+            Number(
+              apiSummary
+                .recoveryPercentage ||
+                0
+            ),
+
+          /*
+          ================================
+          SALES / BATCHES
+          ================================
+          */
+
+          salesCount:
+            Number(
+              apiSummary
+                .salesCount ||
                 0
             ),
 
           totalBatches:
             Number(
-              data?.summary
-                ?.totalBatches ||
+              apiSummary
+                .totalBatches ||
                 0
             ),
         });
 
         /*
-        ======================================
+        ====================================
         INVESTMENTS
-        ======================================
+        ====================================
         */
 
         setInvestments(
@@ -296,6 +401,18 @@ export default function FinancePage() {
             ? err.message
             : "Something went wrong."
         );
+
+        /*
+        ====================================
+        RESET DATA ON ERROR
+        ====================================
+        */
+
+        setSummary(
+          emptySummary
+        );
+
+        setInvestments([]);
       } finally {
         setLoading(false);
       }
@@ -342,10 +459,7 @@ export default function FinancePage() {
       );
 
       /*
-      Reload finance data so:
-      - overview updates
-      - investment history updates
-      - total batches updates
+      Reload complete Finance data.
       */
 
       await loadFinanceData();
@@ -391,44 +505,19 @@ export default function FinancePage() {
   ==========================================
   OPEN EDIT INVESTMENT
   ==========================================
-
-  FLOW:
-
-  Investment History
-       ↓
-  Investment Details
-       ↓
-  Edit Investment
-       ↓
-  Close Details
-       ↓
-  Open Edit Modal
-  ==========================================
   */
 
   const handleEditInvestment =
     (
       investment: Investment
     ) => {
-      /*
-      Save investment into edit state.
-      */
-
       setEditingInvestment(
         investment
       );
 
-      /*
-      Close Preview / Details modal.
-      */
-
       setShowDetailsModal(
         false
       );
-
-      /*
-      Open Edit Investment modal.
-      */
 
       setShowEditModal(
         true
@@ -451,10 +540,6 @@ export default function FinancePage() {
         null
       );
 
-      /*
-      Clear previous details selection.
-      */
-
       setSelectedInvestment(
         null
       );
@@ -464,36 +549,17 @@ export default function FinancePage() {
   ==========================================
   INVESTMENT UPDATED
   ==========================================
-
-  This runs after EditInvestmentModal
-  successfully completes the PUT request.
-  ==========================================
   */
 
   const handleInvestmentUpdated =
     async () => {
-      /*
-      Close Edit Modal.
-      */
-
       setShowEditModal(
         false
       );
 
-      /*
-      Close Details Modal just in case.
-      */
-
       setShowDetailsModal(
         false
       );
-
-      /*
-      Clear old investment objects.
-
-      Important because the old object contains
-      old cost / revenue / profit values.
-      */
 
       setEditingInvestment(
         null
@@ -502,13 +568,6 @@ export default function FinancePage() {
       setSelectedInvestment(
         null
       );
-
-      /*
-      Reload everything from database.
-
-      FinanceOverview will therefore receive
-      newly calculated values automatically.
-      */
 
       await loadFinanceData();
     };
@@ -535,10 +594,12 @@ export default function FinancePage() {
             Finance & Investments
           </h1>
 
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">
             Track investments,
-            stock, revenue, profit
-            and ROI.
+            inventory, delivered
+            revenue, landed cost,
+            realized profit and
+            ROI.
           </p>
         </div>
 
@@ -604,6 +665,12 @@ export default function FinancePage() {
               handleSelectInvestment
             }
           />
+
+          {/* ============================= */}
+          {/* FINANCE TRANSACTION HISTORY */}
+          {/* ============================= */}
+
+          <FinanceSalesHistory />
         </div>
       )}
 
@@ -624,7 +691,7 @@ export default function FinancePage() {
       />
 
       {/* ================================= */}
-      {/* INVESTMENT DETAILS / PREVIEW */}
+      {/* INVESTMENT DETAILS */}
       {/* ================================= */}
 
       <InvestmentDetails

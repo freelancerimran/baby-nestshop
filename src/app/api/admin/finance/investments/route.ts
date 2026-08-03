@@ -5,38 +5,48 @@ import {
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-
-// ==========================================
-// GET ALL INVESTMENTS
-// ==========================================
+/*
+==========================================
+GET ALL INVESTMENTS + FINANCE SUMMARY
+==========================================
+*/
 
 export async function GET() {
   try {
-    const { data, error } =
-      await supabaseAdmin
-        .from("investment_batches")
-        .select(`
-          *,
-          investment_items (*)
-        `)
-        .order("investment_date", {
-          ascending: false,
-        })
-        .order("created_at", {
-          ascending: false,
-        });
+    /*
+    ========================================
+    1. LOAD INVESTMENTS
+    ========================================
+    */
 
-    if (error) {
+    const {
+      data: batches,
+      error: batchesError,
+    } = await supabaseAdmin
+      .from("investment_batches")
+      .select(`
+        *,
+        investment_items (*)
+      `)
+      .order("investment_date", {
+        ascending: false,
+      })
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (batchesError) {
       console.error(
-        "FINANCE GET ERROR:",
-        error
+        "FINANCE INVESTMENTS GET ERROR:",
+        batchesError
       );
 
       return NextResponse.json(
         {
           success: false,
           investments: [],
-          error: error.message,
+          error:
+            batchesError.message,
         },
         {
           status: 500,
@@ -44,321 +54,526 @@ export async function GET() {
       );
     }
 
-    const investments = (data || []).map(
-      (batch: any) => {
-        const items =
-          batch.investment_items || [];
+    /*
+    ========================================
+    2. LOAD FINANCE SALES LEDGER
+    ========================================
 
-        // ----------------------------------
-        // PRODUCT COST
-        // ----------------------------------
+    finance_sales is the source of truth
+    for confirmed delivered revenue,
+    realized costs and realized profit.
+    ========================================
+    */
 
-        const productCost =
-          items.reduce(
-            (
-              total: number,
-              item: any
-            ) =>
-              total +
-              Number(
-                item.quantity || 0
-              ) *
-                Number(
-                  item.unit_cost || 0
-                ),
+    const {
+      data: financeSales,
+      error: financeSalesError,
+    } = await supabaseAdmin
+      .from("finance_sales")
+      .select(`
+        id,
+        order_id,
+        investment_item_id,
+        investment_id,
+        product_id,
+        product_name,
+        quantity,
+        unit_cost,
+        selling_price,
+        product_revenue,
+        cost_of_goods,
+        allocated_extra_cost,
+        landed_cost,
+        gross_profit,
+        created_at
+      `)
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (financeSalesError) {
+      console.error(
+        "FINANCE SALES GET ERROR:",
+        financeSalesError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          investments: [],
+          error:
+            financeSalesError.message,
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    3. BUILD LEDGER MAP BY INVESTMENT
+    ========================================
+    */
+
+    const salesByInvestment =
+      new Map<
+        string,
+        {
+          actualRevenue: number;
+          actualProductCost: number;
+          allocatedExtraCost: number;
+          realizedCost: number;
+          realizedProfit: number;
+          salesCount: number;
+          soldUnits: number;
+        }
+      >();
+
+    for (
+      const sale of
+        financeSales || []
+    ) {
+      const investmentId =
+        String(
+          sale.investment_id ??
+            ""
+        );
+
+      if (!investmentId) {
+        continue;
+      }
+
+      const current =
+        salesByInvestment.get(
+          investmentId
+        ) || {
+          actualRevenue: 0,
+          actualProductCost: 0,
+          allocatedExtraCost: 0,
+          realizedCost: 0,
+          realizedProfit: 0,
+          salesCount: 0,
+          soldUnits: 0,
+        };
+
+      current.actualRevenue +=
+        Number(
+          sale.product_revenue ||
             0
-          );
+        );
 
-        // ----------------------------------
-        // EXTRA COSTS
-        // ----------------------------------
-
-        const shippingCost =
-          Number(
-            batch.shipping_cost || 0
-          );
-
-        const customsCost =
-          Number(
-            batch.customs_cost || 0
-          );
-
-        const packagingCost =
-          Number(
-            batch.packaging_cost || 0
-          );
-
-        const otherCost =
-          Number(
-            batch.other_cost || 0
-          );
-
-        const extraCost =
-          shippingCost +
-          customsCost +
-          packagingCost +
-          otherCost;
-
-        // ----------------------------------
-        // TOTAL INVESTMENT
-        // ----------------------------------
-
-        const totalInvestment =
-          productCost + extraCost;
-
-        // ----------------------------------
-        // POTENTIAL REVENUE
-        // ----------------------------------
-
-        const potentialRevenue =
-          items.reduce(
-            (
-              total: number,
-              item: any
-            ) =>
-              total +
-              Number(
-                item.quantity || 0
-              ) *
-                Number(
-                  item.selling_price || 0
-                ),
+      current.actualProductCost +=
+        Number(
+          sale.cost_of_goods ||
             0
-          );
+        );
 
-        // ----------------------------------
-        // POTENTIAL PROFIT
-        // ----------------------------------
-
-        const potentialProfit =
-          potentialRevenue -
-          totalInvestment;
-
-        // ----------------------------------
-        // QUANTITY
-        // ----------------------------------
-
-        const totalUnits =
-          items.reduce(
-            (
-              total: number,
-              item: any
-            ) =>
-              total +
-              Number(
-                item.quantity || 0
-              ),
+      current.allocatedExtraCost +=
+        Number(
+          sale.allocated_extra_cost ||
             0
-          );
+        );
 
-        const soldUnits =
-          items.reduce(
-            (
-              total: number,
-              item: any
-            ) =>
-              total +
-              Number(
-                item.sold_quantity || 0
-              ),
+      current.realizedCost +=
+        Number(
+          sale.landed_cost ||
             0
-          );
+        );
 
-        const remainingUnits =
-          Math.max(
-            totalUnits - soldUnits,
+      current.realizedProfit +=
+        Number(
+          sale.gross_profit ||
             0
-          );
+        );
 
-        // ----------------------------------
-        // ACTUAL REVENUE
-        // Phase 1:
-        // sold quantity × batch selling price
-        // ----------------------------------
+      current.salesCount += 1;
 
-        const actualRevenue =
-          items.reduce(
-            (
-              total: number,
-              item: any
-            ) =>
-              total +
-              Number(
-                item.sold_quantity || 0
-              ) *
-                Number(
-                  item.selling_price || 0
-                ),
+      current.soldUnits +=
+        Number(
+          sale.quantity ||
             0
-          );
+        );
 
-        // ----------------------------------
-        // COST OF SOLD PRODUCTS
-        // ----------------------------------
+      salesByInvestment.set(
+        investmentId,
+        current
+      );
+    }
 
-        const soldProductCost =
-          items.reduce(
-            (
-              total: number,
-              item: any
-            ) =>
-              total +
-              Number(
-                item.sold_quantity || 0
-              ) *
+    /*
+    ========================================
+    4. FORMAT INVESTMENTS
+    ========================================
+    */
+
+    const investments =
+      (batches || []).map(
+        (batch: any) => {
+          const items =
+            Array.isArray(
+              batch.investment_items
+            )
+              ? batch.investment_items
+              : [];
+
+          /*
+          ================================
+          PRODUCT COST
+          ================================
+          */
+
+          const productCost =
+            items.reduce(
+              (
+                total: number,
+                item: any
+              ) =>
+                total +
                 Number(
-                  item.unit_cost || 0
-                ),
-            0
-          );
+                  item.quantity ||
+                    0
+                ) *
+                  Number(
+                    item.unit_cost ||
+                      0
+                  ),
+              0
+            );
 
-        // Allocate extra costs proportionally
-        // based on sold units.
+          /*
+          ================================
+          EXTRA COST
+          ================================
+          */
 
-        const soldRatio =
-          totalUnits > 0
-            ? soldUnits /
-              totalUnits
-            : 0;
+          const shippingCost =
+            Number(
+              batch.shipping_cost ||
+                0
+            );
 
-        const allocatedExtraCost =
-          extraCost *
-          soldRatio;
+          const customsCost =
+            Number(
+              batch.customs_cost ||
+                0
+            );
 
-        const realizedCost =
-          soldProductCost +
-          allocatedExtraCost;
+          const packagingCost =
+            Number(
+              batch.packaging_cost ||
+                0
+            );
 
-        // ----------------------------------
-        // REALIZED PROFIT
-        // ----------------------------------
+          const otherCost =
+            Number(
+              batch.other_cost ||
+                0
+            );
 
-        const realizedProfit =
-          actualRevenue -
-          realizedCost;
+          const extraCost =
+            shippingCost +
+            customsCost +
+            packagingCost +
+            otherCost;
 
-        // ----------------------------------
-        // INVESTMENT RECOVERY
-        // ----------------------------------
+          /*
+          ================================
+          TOTAL INVESTMENT
+          ================================
+          */
 
-        const recoveryPercentage =
-          totalInvestment > 0
-            ? Math.min(
-                (actualRevenue /
-                  totalInvestment) *
-                  100,
-                100
-              )
-            : 0;
+          const totalInvestment =
+            productCost +
+            extraCost;
 
-        return {
-          id: batch.id,
+          /*
+          ================================
+          POTENTIAL REVENUE
+          ================================
+          */
 
-          investmentCode:
-            batch.investment_code,
-
-          investmentName:
-            batch.investment_name,
-
-          investmentDate:
-            batch.investment_date,
-
-          supplier:
-            batch.supplier,
-
-          status:
-            batch.status,
-
-          notes:
-            batch.notes,
-
-          shippingCost,
-          customsCost,
-          packagingCost,
-          otherCost,
-
-          productCost,
-          extraCost,
-
-          totalInvestment,
-
-          potentialRevenue,
-          potentialProfit,
-
-          actualRevenue,
-          realizedCost,
-          realizedProfit,
-
-          totalUnits,
-          soldUnits,
-          remainingUnits,
-
-          recoveryPercentage,
-
-          items: items.map(
-            (item: any) => ({
-              id: item.id,
-
-              productId:
-                item.product_id,
-
-              productName:
-                item.product_name,
-
-              quantity:
+          const potentialRevenue =
+            items.reduce(
+              (
+                total: number,
+                item: any
+              ) =>
+                total +
                 Number(
-                  item.quantity || 0
-                ),
+                  item.quantity ||
+                    0
+                ) *
+                  Number(
+                    item.selling_price ||
+                      0
+                  ),
+              0
+            );
 
-              unitCost:
-                Number(
-                  item.unit_cost || 0
-                ),
+          /*
+          ================================
+          POTENTIAL PROFIT
+          ================================
+          */
 
-              sellingPrice:
+          const potentialProfit =
+            potentialRevenue -
+            totalInvestment;
+
+          /*
+          ================================
+          PURCHASED UNITS
+          ================================
+          */
+
+          const totalUnits =
+            items.reduce(
+              (
+                total: number,
+                item: any
+              ) =>
+                total +
                 Number(
-                  item.selling_price ||
+                  item.quantity ||
                     0
                 ),
+              0
+            );
 
-              soldQuantity:
+          /*
+          ================================
+          SOLD UNITS
+
+          Source:
+          investment_items.sold_quantity
+
+          This is updated by the
+          transaction-safe Finance RPC.
+          ================================
+          */
+
+          const soldUnits =
+            items.reduce(
+              (
+                total: number,
+                item: any
+              ) =>
+                total +
                 Number(
                   item.sold_quantity ||
                     0
                 ),
+              0
+            );
 
-              remainingQuantity:
-                Math.max(
-                  Number(
-                    item.quantity || 0
-                  ) -
+          const remainingUnits =
+            Math.max(
+              totalUnits -
+                soldUnits,
+              0
+            );
+
+          /*
+          ================================
+          ACTUAL FINANCE
+
+          Source:
+          finance_sales ledger
+          ================================
+          */
+
+          const ledger =
+            salesByInvestment.get(
+              String(
+                batch.id
+              )
+            ) || {
+              actualRevenue: 0,
+              actualProductCost: 0,
+              allocatedExtraCost: 0,
+              realizedCost: 0,
+              realizedProfit: 0,
+              salesCount: 0,
+              soldUnits: 0,
+            };
+
+          const actualRevenue =
+            ledger.actualRevenue;
+
+          const actualProductCost =
+            ledger.actualProductCost;
+
+          const allocatedExtraCost =
+            ledger.allocatedExtraCost;
+
+          const realizedCost =
+            ledger.realizedCost;
+
+          const realizedProfit =
+            ledger.realizedProfit;
+
+          const salesCount =
+            ledger.salesCount;
+
+          /*
+          ================================
+          INVESTMENT RECOVERY
+          ================================
+          */
+
+          const recoveryPercentage =
+            totalInvestment > 0
+              ? Math.min(
+                  (
+                    actualRevenue /
+                    totalInvestment
+                  ) * 100,
+                  100
+                )
+              : 0;
+
+          /*
+          ================================
+          BATCH ROI
+          ================================
+          */
+
+          const roi =
+            totalInvestment > 0
+              ? (
+                  realizedProfit /
+                  totalInvestment
+                ) * 100
+              : 0;
+
+          /*
+          ================================
+          RETURN INVESTMENT
+          ================================
+          */
+
+          return {
+            id:
+              batch.id,
+
+            investmentCode:
+              batch.investment_code,
+
+            investmentName:
+              batch.investment_name,
+
+            investmentDate:
+              batch.investment_date,
+
+            supplier:
+              batch.supplier,
+
+            status:
+              batch.status,
+
+            notes:
+              batch.notes,
+
+            shippingCost,
+            customsCost,
+            packagingCost,
+            otherCost,
+
+            productCost,
+            extraCost,
+
+            totalInvestment,
+
+            potentialRevenue,
+            potentialProfit,
+
+            actualRevenue,
+            actualProductCost,
+            allocatedExtraCost,
+            realizedCost,
+            realizedProfit,
+
+            recoveryPercentage,
+            roi,
+
+            salesCount,
+
+            totalUnits,
+            soldUnits,
+            remainingUnits,
+
+            items:
+              items.map(
+                (item: any) => ({
+                  id:
+                    item.id,
+
+                  productId:
+                    item.product_id,
+
+                  productName:
+                    item.product_name,
+
+                  quantity:
+                    Number(
+                      item.quantity ||
+                        0
+                    ),
+
+                  unitCost:
+                    Number(
+                      item.unit_cost ||
+                        0
+                    ),
+
+                  sellingPrice:
+                    Number(
+                      item.selling_price ||
+                        0
+                    ),
+
+                  soldQuantity:
                     Number(
                       item.sold_quantity ||
                         0
                     ),
-                  0
-                ),
-            })
-          ),
 
-          createdAt:
-            batch.created_at,
+                  remainingQuantity:
+                    Math.max(
+                      Number(
+                        item.quantity ||
+                          0
+                      ) -
+                        Number(
+                          item.sold_quantity ||
+                            0
+                        ),
+                      0
+                    ),
+                })
+              ),
 
-          updatedAt:
-            batch.updated_at,
-        };
-      }
-    );
+            createdAt:
+              batch.created_at,
 
-    // ======================================
-    // LIFETIME SUMMARY
-    // ======================================
+            updatedAt:
+              batch.updated_at,
+          };
+        }
+      );
 
-    const summary =
+    /*
+    ========================================
+    5. LIFETIME INVESTMENT SUMMARY
+    ========================================
+    */
+
+    const investmentSummary =
       investments.reduce(
         (
-          totals: any,
-          investment: any
+          totals,
+          investment
         ) => {
           totals.totalInvestment +=
             investment.totalInvestment;
@@ -368,12 +583,6 @@ export async function GET() {
 
           totals.potentialProfit +=
             investment.potentialProfit;
-
-          totals.actualRevenue +=
-            investment.actualRevenue;
-
-          totals.realizedProfit +=
-            investment.realizedProfit;
 
           totals.totalUnits +=
             investment.totalUnits;
@@ -390,8 +599,6 @@ export async function GET() {
           totalInvestment: 0,
           potentialRevenue: 0,
           potentialProfit: 0,
-          actualRevenue: 0,
-          realizedProfit: 0,
 
           totalUnits: 0,
           soldUnits: 0,
@@ -399,21 +606,216 @@ export async function GET() {
         }
       );
 
+    /*
+    ========================================
+    6. LIFETIME ACTUAL FINANCE SUMMARY
+    ========================================
+
+    We calculate actual financial values
+    directly from the immutable ledger.
+
+    This avoids estimated realized profit.
+    ========================================
+    */
+
+    const actualSummary =
+      (financeSales || []).reduce(
+        (
+          totals,
+          sale: any
+        ) => {
+          totals.actualRevenue +=
+            Number(
+              sale.product_revenue ||
+                0
+            );
+
+          totals.actualProductCost +=
+            Number(
+              sale.cost_of_goods ||
+                0
+            );
+
+          totals.allocatedExtraCost +=
+            Number(
+              sale.allocated_extra_cost ||
+                0
+            );
+
+          totals.realizedCost +=
+            Number(
+              sale.landed_cost ||
+                0
+            );
+
+          totals.realizedProfit +=
+            Number(
+              sale.gross_profit ||
+                0
+            );
+
+          totals.salesCount += 1;
+
+          return totals;
+        },
+        {
+          actualRevenue: 0,
+          actualProductCost: 0,
+          allocatedExtraCost: 0,
+          realizedCost: 0,
+          realizedProfit: 0,
+          salesCount: 0,
+        }
+      );
+
+    /*
+    ========================================
+    7. ROI
+    ========================================
+
+    Realized Profit / Total Investment
+    ========================================
+    */
+
     const roi =
-      summary.totalInvestment > 0
-        ? (summary.realizedProfit /
-            summary.totalInvestment) *
-          100
+      investmentSummary
+        .totalInvestment > 0
+        ? (
+            actualSummary
+              .realizedProfit /
+            investmentSummary
+              .totalInvestment
+          ) * 100
         : 0;
+
+    /*
+    ========================================
+    8. INVESTMENT RECOVERY
+    ========================================
+
+    Actual delivered product revenue
+    compared with total invested capital.
+
+    UI caps display at 100%.
+    ========================================
+    */
+
+    const recoveryPercentage =
+      investmentSummary
+        .totalInvestment > 0
+        ? Math.min(
+            (
+              actualSummary
+                .actualRevenue /
+              investmentSummary
+                .totalInvestment
+            ) * 100,
+            100
+          )
+        : 0;
+
+    /*
+    ========================================
+    9. SUCCESS
+    ========================================
+    */
 
     return NextResponse.json({
       success: true,
 
       summary: {
-        ...summary,
-        roi,
+        /*
+        ================================
+        INVESTMENT
+        ================================
+        */
+
+        totalInvestment:
+          investmentSummary
+            .totalInvestment,
+
         totalBatches:
           investments.length,
+
+        /*
+        ================================
+        POTENTIAL
+        ================================
+        */
+
+        potentialRevenue:
+          investmentSummary
+            .potentialRevenue,
+
+        potentialProfit:
+          investmentSummary
+            .potentialProfit,
+
+        /*
+        ================================
+        ACTUAL FINANCE
+        ================================
+        */
+
+        actualRevenue:
+          actualSummary
+            .actualRevenue,
+
+        actualProductCost:
+          actualSummary
+            .actualProductCost,
+
+        /*
+        Compatibility alias for UI.
+        */
+
+        costOfGoods:
+          actualSummary
+            .actualProductCost,
+
+        allocatedExtraCost:
+          actualSummary
+            .allocatedExtraCost,
+
+        realizedCost:
+          actualSummary
+            .realizedCost,
+
+        realizedProfit:
+          actualSummary
+            .realizedProfit,
+
+        /*
+        ================================
+        INVENTORY
+        ================================
+        */
+
+        totalUnits:
+          investmentSummary
+            .totalUnits,
+
+        soldUnits:
+          investmentSummary
+            .soldUnits,
+
+        remainingUnits:
+          investmentSummary
+            .remainingUnits,
+
+        /*
+        ================================
+        PERFORMANCE
+        ================================
+        */
+
+        roi,
+
+        recoveryPercentage,
+
+        salesCount:
+          actualSummary
+            .salesCount,
       },
 
       investments,
@@ -427,7 +829,9 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
+
         investments: [],
+
         error:
           error instanceof Error
             ? error.message
@@ -440,40 +844,50 @@ export async function GET() {
   }
 }
 
-
-// ==========================================
-// CREATE NEW INVESTMENT
-// ==========================================
+/*
+==========================================
+CREATE NEW INVESTMENT
+==========================================
+*/
 
 export async function POST(
   req: NextRequest
 ) {
   try {
-    const body = await req.json();
+    const body =
+      await req.json();
 
     const {
       investmentName,
       investmentDate,
       supplier,
+
       shippingCost = 0,
       customsCost = 0,
       packagingCost = 0,
       otherCost = 0,
+
       notes,
+
       items = [],
     } = body;
 
-    // ======================================
-    // VALIDATION
-    // ======================================
+    /*
+    ========================================
+    1. VALIDATE INVESTMENT NAME
+    ========================================
+    */
 
     if (
       !investmentName ||
-      !investmentName.trim()
+      !String(
+        investmentName
+      ).trim()
     ) {
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Investment name is required.",
         },
@@ -483,6 +897,12 @@ export async function POST(
       );
     }
 
+    /*
+    ========================================
+    2. VALIDATE ITEMS
+    ========================================
+    */
+
     if (
       !Array.isArray(items) ||
       items.length === 0
@@ -490,6 +910,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Add at least one product.",
         },
@@ -499,11 +920,19 @@ export async function POST(
       );
     }
 
-    for (const item of items) {
-      if (!item.productName) {
+    for (
+      const item of items
+    ) {
+      if (
+        !item.productName ||
+        !String(
+          item.productName
+        ).trim()
+      ) {
         return NextResponse.json(
           {
             success: false,
+
             message:
               "Product name is required.",
           },
@@ -514,11 +943,14 @@ export async function POST(
       }
 
       if (
-        Number(item.quantity) <= 0
+        Number(
+          item.quantity
+        ) <= 0
       ) {
         return NextResponse.json(
           {
             success: false,
+
             message:
               "Product quantity must be greater than 0.",
           },
@@ -529,7 +961,9 @@ export async function POST(
       }
 
       if (
-        Number(item.unitCost) < 0 ||
+        Number(
+          item.unitCost
+        ) < 0 ||
         Number(
           item.sellingPrice
         ) < 0
@@ -537,6 +971,7 @@ export async function POST(
         return NextResponse.json(
           {
             success: false,
+
             message:
               "Product cost and selling price cannot be negative.",
           },
@@ -547,11 +982,14 @@ export async function POST(
       }
     }
 
-    // ======================================
-    // GENERATE INVESTMENT CODE
-    // ======================================
+    /*
+    ========================================
+    3. GENERATE INVESTMENT CODE
+    ========================================
+    */
 
-    const now = new Date();
+    const now =
+      new Date();
 
     const year =
       now.getFullYear();
@@ -564,21 +1002,27 @@ export async function POST(
     const investmentCode =
       `INV-${year}-${timestamp}`;
 
-    // ======================================
-    // CREATE INVESTMENT BATCH
-    // ======================================
+    /*
+    ========================================
+    4. CREATE INVESTMENT BATCH
+    ========================================
+    */
 
     const {
       data: batch,
       error: batchError,
     } = await supabaseAdmin
-      .from("investment_batches")
+      .from(
+        "investment_batches"
+      )
       .insert({
         investment_code:
           investmentCode,
 
         investment_name:
-          investmentName.trim(),
+          String(
+            investmentName
+          ).trim(),
 
         investment_date:
           investmentDate ||
@@ -587,34 +1031,45 @@ export async function POST(
             .split("T")[0],
 
         supplier:
-          supplier?.trim() ||
-          null,
+          supplier
+            ? String(
+                supplier
+              ).trim()
+            : null,
 
         shipping_cost:
           Number(
-            shippingCost || 0
+            shippingCost ||
+              0
           ),
 
         customs_cost:
           Number(
-            customsCost || 0
+            customsCost ||
+              0
           ),
 
         packaging_cost:
           Number(
-            packagingCost || 0
+            packagingCost ||
+              0
           ),
 
         other_cost:
           Number(
-            otherCost || 0
+            otherCost ||
+              0
           ),
 
         notes:
-          notes?.trim() ||
-          null,
+          notes
+            ? String(
+                notes
+              ).trim()
+            : null,
 
-        status: "active",
+        status:
+          "active",
 
         updated_at:
           now.toISOString(),
@@ -622,9 +1077,12 @@ export async function POST(
       .select()
       .single();
 
-    if (batchError || !batch) {
+    if (
+      batchError ||
+      !batch
+    ) {
       console.error(
-        "CREATE BATCH ERROR:",
+        "CREATE INVESTMENT BATCH ERROR:",
         batchError
       );
 
@@ -634,9 +1092,11 @@ export async function POST(
       );
     }
 
-    // ======================================
-    // CREATE INVESTMENT ITEMS
-    // ======================================
+    /*
+    ========================================
+    5. CREATE INVESTMENT ITEMS
+    ========================================
+    */
 
     const investmentItems =
       items.map(
@@ -645,11 +1105,17 @@ export async function POST(
             batch.id,
 
           product_id:
-            item.productId ||
-            null,
+            item.productId !=
+            null
+              ? String(
+                  item.productId
+                )
+              : null,
 
           product_name:
-            item.productName,
+            String(
+              item.productName
+            ).trim(),
 
           quantity:
             Number(
@@ -658,7 +1124,8 @@ export async function POST(
 
           unit_cost:
             Number(
-              item.unitCost || 0
+              item.unitCost ||
+                0
             ),
 
           selling_price:
@@ -667,7 +1134,8 @@ export async function POST(
                 0
             ),
 
-          sold_quantity: 0,
+          sold_quantity:
+            0,
 
           updated_at:
             now.toISOString(),
@@ -678,7 +1146,9 @@ export async function POST(
       data: createdItems,
       error: itemsError,
     } = await supabaseAdmin
-      .from("investment_items")
+      .from(
+        "investment_items"
+      )
       .insert(
         investmentItems
       )
@@ -686,11 +1156,18 @@ export async function POST(
 
     if (itemsError) {
       console.error(
-        "CREATE ITEMS ERROR:",
+        "CREATE INVESTMENT ITEMS ERROR:",
         itemsError
       );
 
-      // Remove batch if item creation fails.
+      /*
+      Remove batch if item creation
+      fails.
+
+      This prevents an empty investment
+      batch remaining in Finance.
+      */
+
       await supabaseAdmin
         .from(
           "investment_batches"
@@ -706,6 +1183,12 @@ export async function POST(
       );
     }
 
+    /*
+    ========================================
+    6. SUCCESS
+    ========================================
+    */
+
     return NextResponse.json(
       {
         success: true,
@@ -715,6 +1198,7 @@ export async function POST(
 
         investment: {
           ...batch,
+
           items:
             createdItems ||
             [],
