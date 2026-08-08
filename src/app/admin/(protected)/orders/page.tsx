@@ -1,34 +1,171 @@
 import OrdersTable from "@/components/admin/OrdersTable";
-import SyncAllCourierButton from "@/components/admin/SyncAllCourierButton";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 /*
-==========================================
+========================================
 GET ORDERS DIRECTLY FROM DATABASE
-==========================================
+========================================
 */
 
 async function getOrders() {
   try {
-    const { data, error } =
-      await supabaseAdmin
-        .from("orders")
-        .select("*")
-        .order("created_at", {
-          ascending: false,
-        });
+    /*
+    ========================================
+    GET ORDERS
+    ========================================
+    */
 
-    if (error) {
+    const {
+      data: ordersData,
+      error: ordersError,
+    } = await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (ordersError) {
       console.error(
         "ORDERS PAGE SUPABASE ERROR:",
-        error
+        ordersError
       );
 
       return [];
     }
 
-    return (data || []).map(
+    /*
+    ========================================
+    GET ORDER ITEMS
+    ========================================
+
+    Multi-product orders store their actual
+    products inside order_items.
+    ========================================
+    */
+
+    const {
+      data: orderItemsData,
+      error: orderItemsError,
+    } = await supabaseAdmin
+      .from("order_items")
+      .select(
+        `
+          id,
+          order_id,
+          product_id,
+          product_name,
+          quantity,
+          unit_price,
+          line_total
+        `
+      );
+
+    if (orderItemsError) {
+      console.error(
+        "ORDERS PAGE ORDER ITEMS ERROR:",
+        orderItemsError
+      );
+    }
+
+    /*
+    ========================================
+    GROUP ORDER ITEMS BY ORDER ID
+    ========================================
+    */
+
+    const itemsByOrderId =
+      new Map<string, any[]>();
+
+    (orderItemsData || []).forEach(
+      (item) => {
+        const orderId =
+          String(
+            item.order_id || ""
+          ).trim();
+
+        if (!orderId) {
+          return;
+        }
+
+        const existingItems =
+          itemsByOrderId.get(
+            orderId
+          ) || [];
+
+        existingItems.push({
+          id: item.id,
+
+          productId:
+            String(
+              item.product_id || ""
+            ),
+
+          productName:
+            item.product_name ||
+            "Product",
+
+          quantity:
+            Number(
+              item.quantity || 0
+            ),
+
+          unitPrice:
+            Number(
+              item.unit_price || 0
+            ),
+
+          lineTotal:
+            Number(
+              item.line_total || 0
+            ),
+        });
+
+        itemsByOrderId.set(
+          orderId,
+          existingItems
+        );
+      }
+    );
+
+    /*
+    ========================================
+    MAP ORDERS FOR ADMIN UI
+    ========================================
+    */
+
+    return (ordersData || []).map(
       (order) => {
+        /*
+        ====================================
+        ORDER ITEMS
+        ====================================
+        */
+
+        const items =
+          itemsByOrderId.get(
+            order.order_id
+          ) || [];
+
+        /*
+        ====================================
+        TOTAL ITEMS
+        ====================================
+        */
+
+        const totalItems =
+          items.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.quantity || 0
+              ),
+            0
+          );
+
         /*
         ====================================
         PAYMENT VALUES
@@ -36,7 +173,9 @@ async function getOrders() {
         */
 
         const total =
-          Number(order.total || 0);
+          Number(
+            order.total || 0
+          );
 
         const paidAmount =
           Number(
@@ -45,38 +184,78 @@ async function getOrders() {
 
         /*
         IMPORTANT:
-        due_amount = 0 is a valid value.
+        due_amount = 0 is valid.
 
-        Therefore we must NOT use:
+        Therefore we do NOT use:
         order.due_amount || total
-
-        because 0 would incorrectly become
-        the full order total.
         */
 
         const dueAmount =
-          order.due_amount !== null &&
-          order.due_amount !== undefined
+          order.due_amount !==
+            null &&
+          order.due_amount !==
+            undefined
             ? Number(
                 order.due_amount
               )
             : Math.max(
                 0,
-                total - paidAmount
+                total -
+                  paidAmount
               );
 
         /*
         ====================================
-        RETURN UI-SAFE ORDER
+        PAYMENT STATUS
+        ====================================
+        */
+
+        let paymentStatus =
+          order.payment_status;
+
+        if (!paymentStatus) {
+          if (
+            total > 0 &&
+            paidAmount >= total
+          ) {
+            paymentStatus =
+              "Paid";
+          } else if (
+            paidAmount > 0 &&
+            paidAmount < total
+          ) {
+            paymentStatus =
+              "Partially Paid";
+          } else {
+            paymentStatus =
+              "Unpaid";
+          }
+        }
+
+        /*
+        ====================================
+        RETURN ORDER
         ====================================
         */
 
         return {
+          /*
+          ----------------------------------
+          ORDER INFORMATION
+          ----------------------------------
+          */
+
           orderId:
             order.order_id,
 
           date:
             order.order_date,
+
+          /*
+          ----------------------------------
+          LEGACY / SINGLE PRODUCT
+          ----------------------------------
+          */
 
           productId:
             order.product_id,
@@ -86,6 +265,37 @@ async function getOrders() {
 
           productSlug:
             order.product_slug,
+
+          quantity:
+            Number(
+              order.quantity || 0
+            ),
+
+          productPrice:
+            Number(
+              order.product_price ||
+                0
+            ),
+
+          /*
+          ----------------------------------
+          MULTI PRODUCT
+          ----------------------------------
+          */
+
+          items,
+
+          totalItems,
+
+          orderType:
+            order.order_type ||
+            "",
+
+          /*
+          ----------------------------------
+          CUSTOMER
+          ----------------------------------
+          */
 
           customerName:
             order.customer_name,
@@ -102,9 +312,16 @@ async function getOrders() {
           address:
             order.address,
 
+          /*
+          ----------------------------------
+          PRICE
+          ----------------------------------
+          */
+
           deliveryCharge:
             Number(
-              order.delivery_charge || 0
+              order.delivery_charge ||
+                0
             ),
 
           discount:
@@ -115,58 +332,63 @@ async function getOrders() {
           couponCode:
             order.coupon_code || "",
 
-          quantity:
+          subtotal:
             Number(
-              order.quantity || 0
+              order.subtotal ??
+                total
             ),
 
-          productPrice:
+          grandTotal:
             Number(
-              order.product_price || 0
+              order.grand_total ??
+                total
             ),
 
           total,
 
           /*
-          ==================================
-          PAYMENT INFORMATION
-          ==================================
+          ----------------------------------
+          PAYMENT
+          ----------------------------------
           */
 
           paidAmount,
 
           dueAmount,
 
-          paymentStatus:
-            order.payment_status ||
-            "Unpaid",
+          paymentStatus,
 
           /*
-          ==================================
+          ----------------------------------
           ORDER STATUS
-          ==================================
+          ----------------------------------
           */
 
           status:
-            order.status || "Pending",
+            order.status ||
+            "Pending",
 
           /*
-          ==================================
-          COURIER INFORMATION
-          ==================================
+          ----------------------------------
+          COURIER
+          ----------------------------------
           */
 
           trackingCode:
-            order.tracking_code || "",
+            order.tracking_code ||
+            "",
 
           consignmentId:
-            order.consignment_id || "",
+            order.consignment_id ||
+            "",
 
           courierStatus:
-            order.courier_status || "",
+            order.courier_status ||
+            "",
 
           lastStatusSync:
-            order.last_status_sync || null,
+            order.last_status_sync ||
+            null,
         };
       }
     );
@@ -181,9 +403,9 @@ async function getOrders() {
 }
 
 /*
-==========================================
+========================================
 ORDERS PAGE
-==========================================
+========================================
 */
 
 export default async function OrdersPage() {
@@ -191,12 +413,21 @@ export default async function OrdersPage() {
     await getOrders();
 
   return (
-    <div className="p-6">
-      <h1 className="mb-4 text-3xl font-bold">
-        Orders
-      </h1>
+    <div className="space-y-6 px-3 pb-8 pt-5 sm:px-5 lg:px-6 xl:px-7">
+      {/* PAGE HEADER */}
 
-      <SyncAllCourierButton />
+      <div className="pt-1">
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+          Orders
+        </h1>
+
+        <p className="mt-1 text-sm text-gray-500">
+          Manage orders, payments, products
+          and courier operations.
+        </p>
+      </div>
+
+      {/* ORDERS */}
 
       <OrdersTable
         orders={orders}

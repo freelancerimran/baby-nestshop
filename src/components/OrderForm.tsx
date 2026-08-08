@@ -5,6 +5,7 @@ import Button from "@/components/ui/Button";
 import { Product } from "@/types/product";
 import { coupons } from "@/data/coupons";
 import { districts } from "@/data/districts";
+import { useQuickCart } from "@/lib/store/quick-cart";
 
 type OrderFormProps = {
   product: Product;
@@ -37,7 +38,14 @@ const [deliveryArea, setDeliveryArea] = useState("dhaka");
 
   const [availableStock, setAvailableStock] = useState<number>(0);
   const [loadingStock, setLoadingStock] = useState(true);
-  
+  const {
+  addItem,
+  isInCart,
+} = useQuickCart();
+
+const alreadyAdded = isInCart(product.id);
+
+
   useEffect(() => {
   if (
     availableStock > 0 &&

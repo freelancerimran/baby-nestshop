@@ -40,13 +40,129 @@ export async function GET() {
       );
     }
 
+    const ordersData = data || [];
+
+    /*
+    ========================================
+    GET ORDER ITEMS
+    ========================================
+
+    Multi-product orders store their
+    individual products inside order_items.
+
+    We fetch all items in one query instead
+    of making a query for every order.
+    ========================================
+    */
+
+    const orderIds = ordersData
+      .map((order) => order.order_id)
+      .filter(Boolean);
+
+    let orderItems: any[] = [];
+
+    if (orderIds.length > 0) {
+      const {
+        data: itemsData,
+        error: itemsError,
+      } = await supabase
+        .from("order_items")
+        .select(
+          `
+          id,
+          order_id,
+          product_id,
+          product_name,
+          quantity,
+          unit_price,
+          line_total
+        `
+        )
+        .in("order_id", orderIds);
+
+      if (itemsError) {
+        console.error(
+          "SUPABASE ORDER ITEMS ERROR:",
+          itemsError
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+            orders: [],
+            error:
+              itemsError.message,
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      orderItems = itemsData || [];
+    }
+
+    /*
+    ========================================
+    GROUP ORDER ITEMS
+    ========================================
+
+    Creates:
+
+    {
+      "BN-XXXX": [
+        item,
+        item
+      ]
+    }
+
+    ========================================
+    */
+
+    const itemsByOrderId =
+      new Map<string, any[]>();
+
+    for (const item of orderItems) {
+      const existing =
+        itemsByOrderId.get(
+          item.order_id
+        ) || [];
+
+      existing.push({
+        id: item.id,
+
+        productId:
+          item.product_id,
+
+        productName:
+          item.product_name,
+
+        quantity: Number(
+          item.quantity ?? 0
+        ),
+
+        unitPrice: Number(
+          item.unit_price ?? 0
+        ),
+
+        lineTotal: Number(
+          item.line_total ?? 0
+        ),
+      });
+
+      itemsByOrderId.set(
+        item.order_id,
+        existing
+      );
+    }
+
     /*
     ========================================
     MAP DATABASE DATA TO ADMIN UI
     ========================================
     */
 
-    const orders = (data || []).map(
+    const orders = ordersData.map(
       (order) => {
         /*
         ====================================
@@ -65,22 +181,13 @@ export async function GET() {
         /*
         ====================================
         DUE AMOUNT
+        ====================================
 
-        IMPORTANT:
+        If database due_amount exists,
+        use it exactly.
 
-        If database due_amount = 0,
-        it MUST remain 0.
-
-        We therefore do NOT use:
-
-        order.due_amount || total
-
-        because JavaScript treats 0
-        as a false value.
-
-        Legacy orders where due_amount
-        is NULL are calculated safely
-        from total - paid amount.
+        Legacy NULL values are calculated
+        safely from total - paid amount.
         ====================================
         */
 
@@ -101,12 +208,6 @@ export async function GET() {
         /*
         ====================================
         PAYMENT STATUS FALLBACK
-
-        Database value is preferred.
-
-        If an old order does not yet have
-        payment_status, calculate a safe
-        fallback for the Admin UI.
         ====================================
         */
 
@@ -129,6 +230,17 @@ export async function GET() {
             paymentStatus = "Unpaid";
           }
         }
+
+        /*
+        ====================================
+        ORDER ITEMS
+        ====================================
+        */
+
+        const items =
+          itemsByOrderId.get(
+            order.order_id
+          ) || [];
 
         /*
         ====================================
@@ -171,6 +283,14 @@ export async function GET() {
           productPrice: Number(
             order.product_price ?? 0
           ),
+
+          /*
+          ----------------------------------
+          MULTI-PRODUCT ITEMS
+          ----------------------------------
+          */
+
+          items,
 
           /*
           ----------------------------------
@@ -250,6 +370,101 @@ export async function GET() {
 
           lastStatusSync:
             order.last_status_sync,
+
+          /*
+          ----------------------------------
+          FULFILLMENT INFORMATION
+          ----------------------------------
+          */
+
+          fulfillmentStatus:
+            order.fulfillment_status,
+
+          pickedAt:
+            order.picked_at,
+
+          packingAt:
+            order.packing_at,
+
+          packedAt:
+            order.packed_at,
+
+          dispatchedAt:
+            order.dispatched_at,
+
+          fulfillmentUpdatedAt:
+            order.fulfillment_updated_at,
+
+          fulfillmentNote:
+            order.fulfillment_note,
+
+          /*
+          ----------------------------------
+          FINANCE / STOCK INFORMATION
+          ----------------------------------
+          */
+
+          financeProcessed:
+            Boolean(
+              order.finance_processed
+            ),
+
+          financeProcessedAt:
+            order.finance_processed_at,
+
+          stockRestored:
+            Boolean(
+              order.stock_restored
+            ),
+
+          stockRestoredAt:
+            order.stock_restored_at,
+
+          /*
+          ----------------------------------
+          ORDER TOTAL INFORMATION
+          ----------------------------------
+          */
+
+          orderType:
+            order.order_type,
+
+          subtotal: Number(
+            order.subtotal ?? 0
+          ),
+
+          grandTotal: Number(
+            order.grand_total ??
+              total
+          ),
+
+          totalItems: Number(
+            order.total_items ??
+              items.reduce(
+                (
+                  sum,
+                  item
+                ) =>
+                  sum +
+                  Number(
+                    item.quantity ??
+                      0
+                  ),
+                0
+              )
+          ),
+
+          /*
+          ----------------------------------
+          TIMESTAMPS
+          ----------------------------------
+          */
+
+          createdAt:
+            order.created_at,
+
+          updatedAt:
+            order.updated_at,
         };
       }
     );

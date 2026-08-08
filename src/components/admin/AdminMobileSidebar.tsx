@@ -11,6 +11,7 @@ import {
   Boxes,
   Truck,
   BarChart3,
+  WalletCards,
   Settings,
   BadgeDollarSign,
 } from "lucide-react";
@@ -46,6 +47,14 @@ const menuItems = [
     href: "/admin/analytics",
     icon: BarChart3,
   },
+
+  // Finance & Investments
+  {
+    name: "Finance",
+    href: "/admin/finance",
+    icon: WalletCards,
+  },
+
   {
     name: "Facebook Pixel",
     href: "/admin/facebook-pixel",
@@ -93,7 +102,6 @@ export default function AdminMobileSidebar({
 
       {/* Drawer */}
       <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl">
-
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 p-4">
           <h2 className="text-lg font-bold text-gray-900">
@@ -103,6 +111,7 @@ export default function AdminMobileSidebar({
           <button
             onClick={onClose}
             className="rounded-lg p-2 hover:bg-gray-100"
+            aria-label="Close menu"
           >
             <X size={24} />
           </button>
@@ -110,27 +119,34 @@ export default function AdminMobileSidebar({
 
         {/* Menu */}
         <div className="p-4">
-
           <div className="space-y-2">
             {menuItems.map((item) => {
               const Icon = item.icon;
 
-              const active =
-                pathname === item.href;
+              const isActive =
+                item.href === "/admin"
+                  ? pathname === "/admin"
+                  : pathname === item.href ||
+                    pathname.startsWith(
+                      `${item.href}/`
+                    );
 
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={onClose}
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 transition ${
-                    active
-                      ? "bg-blue-600 text-white"
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-all ${
+                    isActive
+                      ? "bg-blue-600 text-white shadow-md"
                       : "text-gray-700 hover:bg-gray-100"
                   }`}
                 >
                   <Icon size={20} />
-                  <span>{item.name}</span>
+
+                  <span className="font-medium">
+                    {item.name}
+                  </span>
                 </Link>
               );
             })}
@@ -145,9 +161,7 @@ export default function AdminMobileSidebar({
               Logout
             </button>
           </div>
-
         </div>
-
       </div>
     </div>
   );

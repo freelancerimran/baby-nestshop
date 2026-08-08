@@ -8,6 +8,26 @@ import {
   useRouter,
 } from "next/navigation";
 
+/*
+========================================
+ORDER ITEM
+========================================
+*/
+
+interface OrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+/*
+========================================
+ORDER
+========================================
+*/
+
 interface Order {
   orderId: string;
   date: string;
@@ -41,6 +61,14 @@ interface Order {
   paidAmount?: number;
   dueAmount?: number;
   paymentStatus?: string;
+
+  /*
+  ========================================
+  MULTIPLE ORDER ITEMS
+  ========================================
+  */
+
+  items?: OrderItem[];
 }
 
 interface Props {
@@ -197,6 +225,61 @@ export default function OrderDetailsModal({
 
   /*
   ========================================
+  ORDER ITEMS
+  ========================================
+  */
+
+  const orderItems =
+    Array.isArray(
+      order.items
+    ) &&
+    order.items.length > 0
+      ? order.items
+      : [
+          {
+            productId:
+              order.productId,
+            productName:
+              order.productName,
+            quantity:
+              Number(
+                order.quantity || 0
+              ),
+            unitPrice:
+              Number(
+                order.productPrice || 0
+              ),
+            lineTotal:
+              Number(
+                order.productPrice || 0
+              ) *
+              Number(
+                order.quantity || 0
+              ),
+          },
+        ];
+
+  /*
+  ========================================
+  TOTAL ITEM QUANTITY
+  ========================================
+  */
+
+  const totalOrderedQuantity =
+    orderItems.reduce(
+      (
+        total,
+        item
+      ) =>
+        total +
+        Number(
+          item.quantity || 0
+        ),
+      0
+    );
+
+  /*
+  ========================================
   ORDER STATE HELPERS
   ========================================
   */
@@ -219,11 +302,6 @@ export default function OrderDetailsModal({
 
   const handleUpdatePayment =
     async () => {
-      /*
-      Cancelled orders must never have
-      their payment changed.
-      */
-
       if (isCancelled) {
         setPaymentMessage(
           "❌ Payment cannot be changed because this order is cancelled."
@@ -377,11 +455,6 @@ export default function OrderDetailsModal({
 
   const handleSendToCourier =
     async () => {
-      /*
-      Cancelled orders must never be
-      sent to courier.
-      */
-
       if (isCancelled) {
         setMessage(
           "❌ Cancelled orders cannot be sent to courier."
@@ -561,14 +634,6 @@ export default function OrderDetailsModal({
   ========================================
   CANCEL ORDER
   ========================================
-
-  IMPORTANT:
-
-  Backend PostgreSQL function performs
-  the actual atomic stock restoration.
-
-  The UI never changes stock directly.
-  ========================================
   */
 
   const handleCancelOrder =
@@ -589,15 +654,9 @@ export default function OrderDetailsModal({
         return;
       }
 
-      /*
-      ======================================
-      CONFIRMATION
-      ======================================
-      */
-
       const confirmed =
         window.confirm(
-          `Cancel order ${order.orderId}?\n\nThe ordered quantity (${order.quantity}) will be restored to inventory.\n\nThis action should only be used when the customer has cancelled the order.`
+          `Cancel order ${order.orderId}?\n\nThe ordered quantity (${totalOrderedQuantity}) will be restored to inventory.\n\nThis action should only be used when the customer has cancelled the order.`
         );
 
       if (
@@ -660,12 +719,6 @@ export default function OrderDetailsModal({
           return;
         }
 
-        /*
-        ====================================
-        UPDATE LOCAL UI
-        ====================================
-        */
-
         setOrderStatus(
           "Cancelled"
         );
@@ -675,12 +728,6 @@ export default function OrderDetailsModal({
             ? "ℹ️ Order was already cancelled. Stock was not restored again."
             : "✅ Order cancelled successfully and stock restored."
         );
-
-        /*
-        ====================================
-        REFRESH SERVER COMPONENT DATA
-        ====================================
-        */
 
         router.refresh();
       } catch (error) {
@@ -734,418 +781,663 @@ export default function OrderDetailsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6">
+
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
 
         {/* ================================
             HEADER
         ================================ */}
 
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-bold">
-            Order Details
-          </h2>
+
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">
+              Order Details
+            </h2>
+
+            <p className="mt-1 text-sm text-gray-500">
+              {order.orderId}
+            </p>
+          </div>
 
           <button
             onClick={
               onClose
             }
-            className="rounded bg-gray-200 px-3 py-1"
+            className="rounded-lg bg-gray-100 px-3 py-2 text-lg transition hover:bg-gray-200"
           >
             ✕
           </button>
+
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-6">
 
           {/* ================================
               ORDER INFORMATION
           ================================ */}
 
-          <p>
-            <strong>
-              Order ID:
-            </strong>{" "}
-            {order.orderId}
-          </p>
+          <section>
 
-          <p>
-            <strong>
-              Date:
-            </strong>{" "}
-            {order.date}
-          </p>
+            <h3 className="mb-4 text-lg font-bold">
+              Customer Information
+            </h3>
 
-          <p>
-            <strong>
-              Customer:
-            </strong>{" "}
-            {order.customerName}
-          </p>
+            <div className="grid gap-3 sm:grid-cols-2">
 
-          <p>
-            <strong>
-              Phone:
-            </strong>{" "}
-            {order.phone}
-          </p>
+              <p>
+                <strong>
+                  Order ID:
+                </strong>{" "}
+                {order.orderId}
+              </p>
 
-          <p>
-            <strong>
-              Address:
-            </strong>{" "}
-            {order.address}
-          </p>
+              <p>
+                <strong>
+                  Date:
+                </strong>{" "}
+                {order.date}
+              </p>
 
-          <p>
-            <strong>
-              District:
-            </strong>{" "}
-            {order.district ||
-              "N/A"}
-          </p>
+              <p>
+                <strong>
+                  Customer:
+                </strong>{" "}
+                {order.customerName}
+              </p>
 
-          <p>
-            <strong>
-              Delivery Area:
-            </strong>{" "}
-            {order.deliveryArea ||
-              "N/A"}
-          </p>
+              <p>
+                <strong>
+                  Phone:
+                </strong>{" "}
+                {order.phone}
+              </p>
 
-          <p>
-            <strong>
-              Product:
-            </strong>{" "}
-            {order.productName}
-          </p>
+              <p>
+                <strong>
+                  District:
+                </strong>{" "}
+                {order.district ||
+                  "N/A"}
+              </p>
 
-          <p>
-            <strong>
-              Quantity:
-            </strong>{" "}
-            {order.quantity}
-          </p>
+              <p>
+                <strong>
+                  Delivery Area:
+                </strong>{" "}
+                {order.deliveryArea ||
+                  "N/A"}
+              </p>
 
-          <p>
-            <strong>
-              Total:
-            </strong>{" "}
-            ৳
-            {Number(
-              order.total
-            ).toLocaleString()}
-          </p>
+              <div className="sm:col-span-2">
+                <strong>
+                  Address:
+                </strong>{" "}
+                {order.address}
+              </div>
 
-          <div className="flex items-center gap-2">
-            <strong>
-              Status:
-            </strong>
+            </div>
 
-            <span
-              className={`rounded-full px-3 py-1 text-sm font-medium ${orderStatusBadge}`}
-            >
-              {orderStatus}
-            </span>
-          </div>
+          </section>
 
           {/* ================================
-              CANCELLED NOTICE
+              PRODUCTS ORDERED
           ================================ */}
 
-          {isCancelled && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              <div className="font-bold">
-                Order Cancelled
+          <section>
+
+            <div className="mb-4 flex items-center justify-between">
+
+              <h3 className="text-lg font-bold">
+                Products Ordered
+              </h3>
+
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-700">
+                {orderItems.length}{" "}
+                {orderItems.length ===
+                1
+                  ? "Product"
+                  : "Products"}
+              </span>
+
+            </div>
+
+            <div className="overflow-hidden rounded-xl border">
+
+              {/* TABLE HEADER */}
+
+              <div className="grid grid-cols-[1fr_70px_100px_110px] gap-3 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-600">
+
+                <div>
+                  Product
+                </div>
+
+                <div className="text-center">
+                  Qty
+                </div>
+
+                <div className="text-right">
+                  Unit Price
+                </div>
+
+                <div className="text-right">
+                  Total
+                </div>
+
               </div>
 
-              <div className="mt-1">
-                This order has been cancelled and its stock has been restored to inventory.
+              {/* PRODUCTS */}
+
+              {orderItems.map(
+                (
+                  item,
+                  index
+                ) => (
+                  <div
+                    key={`${item.productId}-${index}`}
+                    className="grid grid-cols-[1fr_70px_100px_110px] gap-3 border-t px-4 py-4 text-sm"
+                  >
+
+                    <div className="font-medium text-gray-900">
+                      {item.productName}
+                    </div>
+
+                    <div className="text-center font-semibold">
+                      {item.quantity}
+                    </div>
+
+                    <div className="text-right">
+                      ৳{" "}
+                      {Number(
+                        item.unitPrice
+                      ).toLocaleString()}
+                    </div>
+
+                    <div className="text-right font-semibold">
+                      ৳{" "}
+                      {Number(
+                        item.lineTotal
+                      ).toLocaleString()}
+                    </div>
+
+                  </div>
+                )
+              )}
+
+              {/* TOTAL ITEMS */}
+
+              <div className="grid grid-cols-[1fr_70px_100px_110px] gap-3 border-t bg-gray-50 px-4 py-3 text-sm font-bold">
+
+                <div>
+                  Total
+                </div>
+
+                <div className="text-center">
+                  {totalOrderedQuantity}
+                </div>
+
+                <div />
+
+                <div className="text-right">
+                  ৳{" "}
+                  {orderItems
+                    .reduce(
+                      (
+                        total,
+                        item
+                      ) =>
+                        total +
+                        Number(
+                          item.lineTotal ||
+                            0
+                        ),
+                      0
+                    )
+                    .toLocaleString()}
+                </div>
+
               </div>
+
             </div>
-          )}
+
+          </section>
+
+          {/* ================================
+              ORDER PRICE SUMMARY
+          ================================ */}
+
+          <section>
+
+            <h3 className="mb-4 text-lg font-bold">
+              Order Summary
+            </h3>
+
+            <div className="rounded-xl border bg-gray-50 p-4">
+
+              <div className="space-y-3">
+
+                <div className="flex justify-between">
+                  <span>
+                    Products Subtotal
+                  </span>
+
+                  <span className="font-medium">
+                    ৳{" "}
+                    {orderItems
+                      .reduce(
+                        (
+                          total,
+                          item
+                        ) =>
+                          total +
+                          Number(
+                            item.lineTotal ||
+                              0
+                          ),
+                        0
+                      )
+                      .toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span>
+                    Delivery Charge
+                  </span>
+
+                  <span>
+                    ৳{" "}
+                    {Number(
+                      order.deliveryCharge ||
+                        0
+                    ).toLocaleString()}
+                  </span>
+                </div>
+
+                {Number(
+                  order.discount || 0
+                ) > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>
+                      Discount
+                    </span>
+
+                    <span>
+                      - ৳{" "}
+                      {Number(
+                        order.discount
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                {order.couponCode && (
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>
+                      Coupon
+                    </span>
+
+                    <span>
+                      {order.couponCode}
+                    </span>
+                  </div>
+                )}
+
+                <hr />
+
+                <div className="flex justify-between text-xl font-bold">
+                  <span>
+                    Grand Total
+                  </span>
+
+                  <span>
+                    ৳{" "}
+                    {Number(
+                      order.total
+                    ).toLocaleString()}
+                  </span>
+                </div>
+
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* ================================
+              STATUS
+          ================================ */}
+
+          <section>
+
+            <div className="flex items-center gap-2">
+
+              <strong>
+                Status:
+              </strong>
+
+              <span
+                className={`rounded-full px-3 py-1 text-sm font-medium ${orderStatusBadge}`}
+              >
+                {orderStatus}
+              </span>
+
+            </div>
+
+            {/* CANCELLED NOTICE */}
+
+            {isCancelled && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+
+                <div className="font-bold">
+                  Order Cancelled
+                </div>
+
+                <div className="mt-1">
+                  This order has been cancelled and its stock has been restored to inventory.
+                </div>
+
+              </div>
+            )}
+
+          </section>
 
           {/* ================================
               PAYMENT INFORMATION
           ================================ */}
 
-          <hr className="my-4" />
+          <section>
 
-          <h3 className="text-lg font-bold">
-            Payment Information
-          </h3>
+            <hr className="mb-5" />
 
-          <div className="rounded-xl border bg-gray-50 p-4">
+            <h3 className="mb-4 text-lg font-bold">
+              Payment Information
+            </h3>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border bg-gray-50 p-4">
 
-              <div>
-                <div className="text-xs text-gray-500">
-                  Order Total
-                </div>
+              <div className="grid gap-4 sm:grid-cols-3">
 
-                <div className="text-lg font-bold">
-                  ৳
-                  {Number(
-                    order.total
-                  ).toLocaleString()}
-                </div>
-              </div>
+                <div>
+                  <div className="text-xs text-gray-500">
+                    Order Total
+                  </div>
 
-              <div>
-                <div className="text-xs text-gray-500">
-                  Paid
-                </div>
-
-                <div className="text-lg font-bold text-green-700">
-                  ৳
-                  {paidAmount.toLocaleString()}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-gray-500">
-                  Due / COD
-                </div>
-
-                <div className="text-lg font-bold text-red-700">
-                  ৳
-                  {dueAmount.toLocaleString()}
-                </div>
-              </div>
-
-            </div>
-
-            <div className="mt-4">
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${paymentBadge}`}
-              >
-                {paymentStatus}
-              </span>
-            </div>
-
-            {/* ==============================
-                PAYMENT EDITING
-            ============================== */}
-
-            {!consignmentId &&
-            !isCancelled ? (
-              <div className="mt-5">
-
-                <label className="mb-2 block text-sm font-medium">
-                  Paid Amount
-                </label>
-
-                <div className="flex flex-col gap-3 sm:flex-row">
-
-                  <input
-                    type="number"
-                    min="0"
-                    max={
+                  <div className="text-lg font-bold">
+                    ৳
+                    {Number(
                       order.total
-                    }
-                    step="1"
-                    value={
-                      paidInput
-                    }
-                    onChange={(
-                      e
-                    ) =>
-                      setPaidInput(
-                        e.target
-                          .value
-                      )
-                    }
-                    className="w-full rounded-lg border px-3 py-2 outline-none focus:border-blue-500"
-                  />
-
-                  <button
-                    onClick={
-                      handleUpdatePayment
-                    }
-                    disabled={
-                      paymentLoading
-                    }
-                    className="whitespace-nowrap rounded-lg bg-green-600 px-4 py-2 font-medium text-white hover:bg-green-700 disabled:opacity-60"
-                  >
-                    {paymentLoading
-                      ? "Updating..."
-                      : "Update Payment"}
-                  </button>
-
+                    ).toLocaleString()}
+                  </div>
                 </div>
 
-                <p className="mt-2 text-xs text-gray-500">
-                  Enter the amount already received from the customer. The remaining amount will be sent to the courier as COD.
-                </p>
+                <div>
+                  <div className="text-xs text-gray-500">
+                    Paid
+                  </div>
+
+                  <div className="text-lg font-bold text-green-700">
+                    ৳
+                    {paidAmount.toLocaleString()}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">
+                    Due / COD
+                  </div>
+
+                  <div className="text-lg font-bold text-red-700">
+                    ৳
+                    {dueAmount.toLocaleString()}
+                  </div>
+                </div>
 
               </div>
-            ) : isCancelled ? (
-              <div className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-                Payment editing is locked because this order is cancelled.
-              </div>
-            ) : (
-              <div className="mt-5 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
-                Payment editing is locked because this order has already been sent to the courier.
-              </div>
-            )}
 
-            {paymentMessage && (
-              <div className="mt-3 rounded-lg bg-white p-3 text-sm">
-                {paymentMessage}
-              </div>
-            )}
+              <div className="mt-4">
 
-          </div>
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${paymentBadge}`}
+                >
+                  {paymentStatus}
+                </span>
+
+              </div>
+
+              {/* PAYMENT EDITING */}
+
+              {!consignmentId &&
+              !isCancelled ? (
+                <div className="mt-5">
+
+                  <label className="mb-2 block text-sm font-medium">
+                    Paid Amount
+                  </label>
+
+                  <div className="flex flex-col gap-3 sm:flex-row">
+
+                    <input
+                      type="number"
+                      min="0"
+                      max={
+                        order.total
+                      }
+                      step="1"
+                      value={
+                        paidInput
+                      }
+                      onChange={(
+                        e
+                      ) =>
+                        setPaidInput(
+                          e.target
+                            .value
+                        )
+                      }
+                      className="w-full rounded-lg border px-3 py-2 outline-none focus:border-blue-500"
+                    />
+
+                    <button
+                      onClick={
+                        handleUpdatePayment
+                      }
+                      disabled={
+                        paymentLoading
+                      }
+                      className="whitespace-nowrap rounded-lg bg-green-600 px-4 py-2 font-medium text-white hover:bg-green-700 disabled:opacity-60"
+                    >
+                      {paymentLoading
+                        ? "Updating..."
+                        : "Update Payment"}
+                    </button>
+
+                  </div>
+
+                  <p className="mt-2 text-xs text-gray-500">
+                    Enter the amount already received from the customer. The remaining amount will be sent to the courier as COD.
+                  </p>
+
+                </div>
+              ) : isCancelled ? (
+                <div className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                  Payment editing is locked because this order is cancelled.
+                </div>
+              ) : (
+                <div className="mt-5 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
+                  Payment editing is locked because this order has already been sent to the courier.
+                </div>
+              )}
+
+              {paymentMessage && (
+                <div className="mt-3 rounded-lg bg-white p-3 text-sm">
+                  {paymentMessage}
+                </div>
+              )}
+
+            </div>
+
+          </section>
 
           {/* ================================
               COURIER INFORMATION
           ================================ */}
 
-          <hr className="my-4" />
+          <section>
 
-          <h3 className="text-lg font-bold">
-            Courier Information
-          </h3>
+            <hr className="mb-5" />
 
-          <p>
-            <strong>
-              Consignment ID:
-            </strong>{" "}
-            {consignmentId ||
-              "Not Sent"}
-          </p>
+            <h3 className="mb-4 text-lg font-bold">
+              Courier Information
+            </h3>
 
-          <p>
-            <strong>
-              Tracking Code:
-            </strong>{" "}
-            {trackingCode ||
-              "Not Available"}
-          </p>
+            <div className="space-y-3">
 
-          <p>
-            <strong>
-              Courier Status:
-            </strong>{" "}
-            {courierStatus ||
-              "Not Available"}
-          </p>
+              <p>
+                <strong>
+                  Consignment ID:
+                </strong>{" "}
+                {consignmentId ||
+                  "Not Sent"}
+              </p>
 
-          <p>
-            <strong>
-              Last Sync:
-            </strong>{" "}
-            {lastSync
-              ? new Date(
-                  lastSync
-                ).toLocaleString()
-              : "Never"}
-          </p>
+              <p>
+                <strong>
+                  Tracking Code:
+                </strong>{" "}
+                {trackingCode ||
+                  "Not Available"}
+              </p>
 
-          {message && (
-            <div className="rounded bg-gray-100 p-3 text-sm">
-              {message}
-            </div>
-          )}
+              <p>
+                <strong>
+                  Courier Status:
+                </strong>{" "}
+                {courierStatus ||
+                  "Not Available"}
+              </p>
 
-          {/* ================================
-              COURIER ACTIONS
-          ================================ */}
-
-          {!isCancelled && (
-            <div className="flex flex-wrap gap-3 pt-4">
-
-              {!consignmentId ? (
-                <button
-                  onClick={
-                    handleSendToCourier
-                  }
-                  disabled={
-                    loading ||
-                    cancelLoading
-                  }
-                  className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-60"
-                >
-                  {loading
-                    ? "Sending..."
-                    : "Send To Courier"}
-                </button>
-              ) : (
-                <div className="rounded bg-green-100 px-4 py-2 font-medium text-green-700">
-                  ✅ Sent To Courier
-                </div>
-              )}
-
-              {consignmentId && (
-                <button
-                  onClick={
-                    handleRefreshStatus
-                  }
-                  disabled={
-                    refreshing
-                  }
-                  className="rounded bg-orange-500 px-4 py-2 text-white disabled:opacity-60"
-                >
-                  {refreshing
-                    ? "Refreshing..."
-                    : "Refresh Status"}
-                </button>
-              )}
+              <p>
+                <strong>
+                  Last Sync:
+                </strong>{" "}
+                {lastSync
+                  ? new Date(
+                      lastSync
+                    ).toLocaleString()
+                  : "Never"}
+              </p>
 
             </div>
-          )}
+
+            {message && (
+              <div className="mt-4 rounded-lg bg-gray-100 p-3 text-sm">
+                {message}
+              </div>
+            )}
+
+            {/* COURIER ACTIONS */}
+
+            {!isCancelled && (
+              <div className="flex flex-wrap gap-3 pt-4">
+
+                {!consignmentId ? (
+                  <button
+                    onClick={
+                      handleSendToCourier
+                    }
+                    disabled={
+                      loading ||
+                      cancelLoading
+                    }
+                    className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {loading
+                      ? "Sending..."
+                      : "Send To Courier"}
+                  </button>
+                ) : (
+                  <div className="rounded-lg bg-green-100 px-4 py-2 font-medium text-green-700">
+                    ✅ Sent To Courier
+                  </div>
+                )}
+
+                {consignmentId && (
+                  <button
+                    onClick={
+                      handleRefreshStatus
+                    }
+                    disabled={
+                      refreshing
+                    }
+                    className="rounded-lg bg-orange-500 px-4 py-2 font-medium text-white hover:bg-orange-600 disabled:opacity-60"
+                  >
+                    {refreshing
+                      ? "Refreshing..."
+                      : "Refresh Status"}
+                  </button>
+                )}
+
+              </div>
+            )}
+
+          </section>
 
           {/* ================================
               CANCEL ORDER
           ================================ */}
 
-          <hr className="my-5" />
+          <section>
 
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+            <hr className="mb-5" />
 
-            <h3 className="font-bold text-red-700">
-              Order Cancellation
-            </h3>
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
 
-            {isCancelled ? (
-              <div className="mt-2 text-sm text-red-700">
-                This order is already cancelled.
-              </div>
-            ) : hasCourier ? (
-              <div className="mt-2 text-sm text-gray-700">
-                This order has already been sent to the courier. Cancellation from this page is disabled for safety.
-              </div>
-            ) : (
-              <>
-                <p className="mt-2 text-sm text-gray-600">
-                  Cancel this order only if the customer no longer wants it. The ordered quantity will automatically be restored to inventory.
-                </p>
+              <h3 className="font-bold text-red-700">
+                Order Cancellation
+              </h3>
 
-                <button
-                  onClick={
-                    handleCancelOrder
-                  }
-                  disabled={
-                    cancelLoading ||
-                    loading ||
-                    paymentLoading
-                  }
-                  className="mt-4 rounded-lg bg-red-600 px-4 py-2 font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {cancelLoading
-                    ? "Cancelling..."
-                    : "Cancel Order"}
-                </button>
-              </>
-            )}
+              {isCancelled ? (
+                <div className="mt-2 text-sm text-red-700">
+                  This order is already cancelled.
+                </div>
+              ) : hasCourier ? (
+                <div className="mt-2 text-sm text-gray-700">
+                  This order has already been sent to the courier. Cancellation from this page is disabled for safety.
+                </div>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm text-gray-600">
+                    Cancel this order only if the customer no longer wants it. The ordered quantity will automatically be restored to inventory.
+                  </p>
 
-            {cancelMessage && (
-              <div className="mt-3 rounded-lg bg-white p-3 text-sm">
-                {cancelMessage}
-              </div>
-            )}
+                  <button
+                    onClick={
+                      handleCancelOrder
+                    }
+                    disabled={
+                      cancelLoading ||
+                      loading ||
+                      paymentLoading
+                    }
+                    className="mt-4 rounded-lg bg-red-600 px-4 py-2 font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {cancelLoading
+                      ? "Cancelling..."
+                      : "Cancel Order"}
+                  </button>
+                </>
+              )}
 
-          </div>
+              {cancelMessage && (
+                <div className="mt-3 rounded-lg bg-white p-3 text-sm">
+                  {cancelMessage}
+                </div>
+              )}
+
+            </div>
+
+          </section>
 
         </div>
       </div>

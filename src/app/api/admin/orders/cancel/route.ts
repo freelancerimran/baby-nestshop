@@ -8,23 +8,25 @@ import {
 } from "@/lib/supabase-admin";
 
 /*
-==========================================
-CANCEL ORDER
-==========================================
+============================================================
+CANCEL ORDER API
+============================================================
 
-The actual cancellation + stock restore
-is performed atomically inside PostgreSQL:
+Actual cancellation + stock restoration is performed
+atomically inside PostgreSQL:
 
 cancel_order_with_stock_restore()
 
-This protects against:
+Supports:
 
-- Double stock restoration
-- Simultaneous cancel requests
-- Order cancelled but stock not restored
-- Stock restored but order not cancelled
-- Cancelling an order already sent to courier
-==========================================
+- Legacy single-product orders
+- New multi-product orders
+- order_items based stock restoration
+- Double restoration protection
+- Courier safety
+- Finance safety
+- Real Stock / Display Stock restoration
+============================================================
 */
 
 export async function POST(
@@ -32,9 +34,9 @@ export async function POST(
 ) {
   try {
     /*
-    ========================================
-    READ REQUEST
-    ========================================
+    ========================================================
+    1. READ REQUEST
+    ========================================================
     */
 
     const body =
@@ -42,19 +44,21 @@ export async function POST(
 
     const orderId =
       String(
-        body.orderId || ""
+        body?.orderId || ""
       ).trim();
 
+
     /*
-    ========================================
-    VALIDATION
-    ========================================
+    ========================================================
+    2. VALIDATION
+    ========================================================
     */
 
     if (!orderId) {
       return NextResponse.json(
         {
           success: false,
+
           message:
             "Order ID required.",
         },
@@ -64,27 +68,42 @@ export async function POST(
       );
     }
 
+
     /*
-    ========================================
-    ATOMIC CANCEL + STOCK RESTORE
-    ========================================
+    ========================================================
+    3. ATOMIC CANCEL + STOCK RESTORE
+    ========================================================
+
+    PostgreSQL handles:
+
+    - Order locking
+    - Product locking
+    - Single-product restoration
+    - Multi-product restoration
+    - Double-restore protection
+    - Courier protection
+    - Finance protection
+    - Order status update
+    ========================================================
     */
 
     const {
       data,
       error,
-    } = await supabaseAdmin.rpc(
-      "cancel_order_with_stock_restore",
-      {
-        p_order_id:
-          orderId,
-      }
-    );
+    } =
+      await supabaseAdmin.rpc(
+        "cancel_order_with_stock_restore",
+        {
+          p_order_id:
+            orderId,
+        }
+      );
+
 
     /*
-    ========================================
-    RPC ERROR
-    ========================================
+    ========================================================
+    4. DATABASE / RPC ERROR
+    ========================================================
     */
 
     if (error) {
@@ -98,10 +117,11 @@ export async function POST(
           error.message || ""
         );
 
+
       /*
-      ======================================
+      ======================================================
       ORDER NOT FOUND
-      ======================================
+      ======================================================
       */
 
       if (
@@ -112,6 +132,7 @@ export async function POST(
         return NextResponse.json(
           {
             success: false,
+
             message:
               "Order not found.",
           },
@@ -121,10 +142,11 @@ export async function POST(
         );
       }
 
+
       /*
-      ======================================
+      ======================================================
       COURIER SAFETY
-      ======================================
+      ======================================================
       */
 
       if (
@@ -145,10 +167,36 @@ export async function POST(
         );
       }
 
+
       /*
-      ======================================
+      ======================================================
+      FINANCE SAFETY
+      ======================================================
+      */
+
+      if (
+        message.includes(
+          "already processed in Finance"
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              "This order has already been processed in Finance and cannot be cancelled normally.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+
+      /*
+      ======================================================
       PRODUCT NOT FOUND
-      ======================================
+      ======================================================
       */
 
       if (
@@ -161,7 +209,7 @@ export async function POST(
             success: false,
 
             message:
-              "The product linked to this order could not be found. Stock was not changed.",
+              "A product linked to this order could not be found. Stock was not changed.",
           },
           {
             status: 404,
@@ -169,15 +217,19 @@ export async function POST(
         );
       }
 
+
       /*
-      ======================================
+      ======================================================
       INVALID QUANTITY
-      ======================================
+      ======================================================
       */
 
       if (
         message.includes(
           "Invalid order quantity"
+        ) ||
+        message.includes(
+          "Invalid order item quantity"
         )
       ) {
         return NextResponse.json(
@@ -185,7 +237,7 @@ export async function POST(
             success: false,
 
             message:
-              "The order has an invalid quantity. Cancellation was stopped for safety.",
+              "The order contains an invalid quantity. Cancellation was stopped for safety.",
           },
           {
             status: 400,
@@ -193,10 +245,39 @@ export async function POST(
         );
       }
 
+
       /*
-      ======================================
+      ======================================================
+      PRODUCT ID MISSING
+      ======================================================
+      */
+
+      if (
+        message.includes(
+          "Order product ID is missing"
+        ) ||
+        message.includes(
+          "Order item product ID is missing"
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+
+            message:
+              "A product linked to this order is missing. Cancellation was stopped for safety.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+
+      /*
+      ======================================================
       UNKNOWN DATABASE ERROR
-      ======================================
+      ======================================================
       */
 
       return NextResponse.json(
@@ -215,10 +296,11 @@ export async function POST(
       );
     }
 
+
     /*
-    ========================================
-    RESULT SAFETY
-    ========================================
+    ========================================================
+    5. RESULT SAFETY
+    ========================================================
     */
 
     if (
@@ -233,7 +315,9 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
+
           message:
+            data?.message ||
             "Order cancellation failed.",
         },
         {
@@ -242,64 +326,87 @@ export async function POST(
       );
     }
 
+
     /*
-    ========================================
-    SUCCESS
-    ========================================
+    ========================================================
+    6. SUCCESS RESPONSE
+    ========================================================
+
+    Works for both:
+
+    Single Product:
+        restoredItemCount = 1
+
+    Multi Product:
+        restoredItemCount = number of order_items
+
+    The complete restored item list is returned so the
+    frontend can display exactly what was restored.
+    ========================================================
     */
 
-    return NextResponse.json({
-      success: true,
+    return NextResponse.json(
+      {
+        success: true,
 
-      orderId:
-        data.orderId ||
-        orderId,
+        orderId:
+          data.orderId ||
+          orderId,
 
-      status:
-        data.status ||
-        "Cancelled",
+        status:
+          data.status ||
+          "Cancelled",
 
-      stockRestored:
-        Boolean(
-          data.stockRestored
-        ),
+        stockRestored:
+          Boolean(
+            data.stockRestored
+          ),
 
-      alreadyCancelled:
-        Boolean(
-          data.alreadyCancelled
-        ),
+        alreadyCancelled:
+          Boolean(
+            data.alreadyCancelled
+          ),
 
-      alreadyRestored:
-        Boolean(
-          data.alreadyRestored
-        ),
+        alreadyRestored:
+          Boolean(
+            data.alreadyRestored
+          ),
 
-      quantityRestored:
-        Number(
-          data.quantityRestored ||
-            0
-        ),
+        restoredItemCount:
+          Number(
+            data.restoredItemCount ||
+              0
+          ),
 
-      previousRealStock:
-        data.previousRealStock,
+        restoredQuantity:
+          Number(
+            data.restoredQuantity ||
+              0
+          ),
 
-      newRealStock:
-        data.newRealStock,
+        items:
+          Array.isArray(
+            data.items
+          )
+            ? data.items
+            : [],
 
-      previousDisplayStock:
-        data.previousDisplayStock,
+        message:
+          data.message ||
+          "Order cancelled and stock restored successfully.",
+      },
+      {
+        status: 200,
+      }
+    );
 
-      newDisplayStock:
-        data.newDisplayStock,
-
-      productStatus:
-        data.productStatus,
-
-      message:
-        data.message ||
-        "Order cancelled successfully.",
-    });
   } catch (error) {
+    /*
+    ========================================================
+    UNEXPECTED SERVER ERROR
+    ========================================================
+    */
+
     console.error(
       "CANCEL ORDER API ERROR:",
       error
@@ -312,7 +419,7 @@ export async function POST(
         message:
           error instanceof Error
             ? error.message
-            : "Unknown error",
+            : "Unknown server error.",
       },
       {
         status: 500,

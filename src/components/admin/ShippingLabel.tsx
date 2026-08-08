@@ -2,6 +2,16 @@
 
 import Barcode from "react-barcode";
 
+interface LabelItem {
+  id?: number | string | null;
+  productId?: string | number | null;
+  productName: string;
+  quantity: number;
+  unitPrice?: number;
+  lineTotal?: number;
+  matchedProductId?: string | number | null;
+}
+
 interface LabelOrder {
   orderId: string;
 
@@ -10,16 +20,34 @@ interface LabelOrder {
   district: string;
   address: string;
 
+  /*
+  ========================================
+  LEGACY PRODUCT INFORMATION
+  ========================================
+
+  Kept for backward compatibility.
+  Multiple-product orders will use items.
+  ========================================
+  */
+
   productName: string;
   quantity: number;
 
-  total: number;
+  /*
+  ========================================
+  ACTUAL ORDER ITEMS
+  ========================================
+  */
+
+  items?: LabelItem[];
 
   /*
   ========================================
   PAYMENT INFORMATION
   ========================================
   */
+
+  total: number;
 
   paidAmount?: number;
   dueAmount?: number;
@@ -34,28 +62,33 @@ interface LabelOrder {
   consignmentId?: string;
 }
 
+/*
+========================================
+HELPER
+========================================
+*/
+
+function formatMoney(value: number) {
+  return Number(value || 0).toLocaleString(
+    "en-US"
+  );
+}
+
+/*
+========================================
+SHIPPING LABEL
+========================================
+*/
+
 export default function ShippingLabel({
   order,
 }: {
   order: LabelOrder;
 }) {
   /*
-  ========================================
+  ======================================
   PAYMENT CALCULATION
-  ========================================
-
-  IMPORTANT:
-
-  dueAmount = 0 must remain 0.
-
-  We must NOT use:
-
-  order.dueAmount || order.total
-
-  because 0 is falsy and would incorrectly
-  fall back to the full order total.
-
-  ========================================
+  ======================================
   */
 
   const total = Number(
@@ -79,18 +112,19 @@ export default function ShippingLabel({
         );
 
   /*
-  ========================================
+  ======================================
   PAYMENT STATUS
-  ========================================
+  ======================================
   */
 
   const paymentStatus =
     order.paymentStatus ||
-    (dueAmount <= 0 && total > 0
+    (dueAmount <= 0 &&
+    total > 0
       ? "Paid"
       : paidAmount > 0
-        ? "Partially Paid"
-        : "Unpaid");
+      ? "Partially Paid"
+      : "Unpaid");
 
   const isFullyPaid =
     dueAmount <= 0 &&
@@ -100,38 +134,95 @@ export default function ShippingLabel({
     paidAmount > 0 &&
     dueAmount > 0;
 
+  /*
+  ======================================
+  PRODUCT ITEMS
+  ======================================
+
+  If items exist, use the real products.
+
+  Otherwise fall back to the old
+  single-product structure.
+  ======================================
+  */
+
+  const items =
+    order.items &&
+    order.items.length > 0
+      ? order.items
+      : [
+          {
+            productName:
+              order.productName ||
+              "Product",
+
+            quantity:
+              Number(
+                order.quantity ?? 1
+              ),
+          },
+        ];
+
+  const isMultipleProducts =
+    items.length > 1;
+
+  /*
+  ======================================
+  TOTAL ITEM QUANTITY
+  ======================================
+  */
+
+  const totalItemQuantity =
+    items.reduce(
+      (sum, item) =>
+        sum +
+        Number(
+          item.quantity || 0
+        ),
+      0
+    );
+
   return (
     <div
       className="shipping-label"
       style={{
         width: "100mm",
-        height: "150mm",
-        border: "2px solid #000",
-        pageBreakAfter: "always",
+        minHeight: "150mm",
+        border: "1.5px solid #111",
+        pageBreakAfter:
+          "always",
         padding: "4mm",
         boxSizing: "border-box",
         background: "#fff",
+        color: "#111",
         fontFamily:
-          "Arial, sans-serif",
+          "Arial, Helvetica, sans-serif",
         display: "flex",
-        flexDirection: "column",
+        flexDirection:
+          "column",
+        overflow: "hidden",
       }}
     >
-      {/* HEADER */}
+      {/* =================================
+          HEADER
+          ================================= */}
 
       <div
         style={{
           textAlign: "center",
           borderBottom:
-            "2px solid #000",
-          paddingBottom: "6px",
+            "1.5px solid #111",
+          paddingBottom:
+            "5px",
         }}
       >
         <div
           style={{
-            fontSize: "22px",
-            fontWeight: "700",
-            letterSpacing: "1px",
+            fontSize: "21px",
+            fontWeight: "800",
+            letterSpacing:
+              "1.2px",
+            lineHeight: "1",
           }}
         >
           BABY NEST
@@ -139,8 +230,11 @@ export default function ShippingLabel({
 
         <div
           style={{
-            fontSize: "9px",
-            fontWeight: "bold",
+            fontSize: "8px",
+            fontWeight: "700",
+            letterSpacing:
+              "0.3px",
+            marginTop: "4px",
           }}
         >
           BABY BOOKS & EDUCATIONAL TOYS
@@ -148,28 +242,34 @@ export default function ShippingLabel({
 
         <div
           style={{
-            fontSize: "9px",
+            fontSize: "8px",
             marginTop: "2px",
-            fontWeight: "bold",
+            fontWeight: "700",
+            letterSpacing:
+              "0.5px",
           }}
         >
           PLAY • LEARN • GROW
         </div>
       </div>
 
-      {/* ORDER ID */}
+      {/* =================================
+          ORDER ID
+          ================================= */}
 
       <div
         style={{
           textAlign: "center",
-          marginTop: "6px",
-          marginBottom: "6px",
+          paddingTop: "5px",
+          paddingBottom: "5px",
         }}
       >
         <div
           style={{
-            fontSize: "9px",
-            fontWeight: "bold",
+            fontSize: "8px",
+            fontWeight: "700",
+            letterSpacing:
+              "0.7px",
           }}
         >
           ORDER ID
@@ -178,26 +278,37 @@ export default function ShippingLabel({
         <div
           style={{
             fontSize: "15px",
-            fontWeight: "bold",
+            fontWeight: "800",
+            marginTop: "2px",
+            letterSpacing:
+              "0.4px",
           }}
         >
           {order.orderId}
         </div>
       </div>
 
-      {/* CUSTOMER */}
+      {/* =================================
+          SHIP TO
+          ================================= */}
 
       <div
         style={{
-          border: "1px solid #000",
+          border:
+            "1px solid #333",
+          borderRadius:
+            "2px",
           padding: "6px",
         }}
       >
         <div
           style={{
-            fontSize: "10px",
-            fontWeight: "bold",
-            marginBottom: "4px",
+            fontSize: "8px",
+            fontWeight: "800",
+            letterSpacing:
+              "0.7px",
+            marginBottom:
+              "4px",
           }}
         >
           SHIP TO
@@ -205,9 +316,9 @@ export default function ShippingLabel({
 
         <div
           style={{
-            fontSize: "18px",
-            fontWeight: "700",
-            lineHeight: "1.15",
+            fontSize: "16px",
+            fontWeight: "800",
+            lineHeight: "1.1",
           }}
         >
           {order.customerName}
@@ -215,9 +326,9 @@ export default function ShippingLabel({
 
         <div
           style={{
-            fontSize: "14px",
+            fontSize: "12px",
             fontWeight: "700",
-            marginTop: "2px",
+            marginTop: "3px",
           }}
         >
           {order.phone}
@@ -225,150 +336,309 @@ export default function ShippingLabel({
 
         <div
           style={{
-            fontSize: "14px",
+            fontSize: "11px",
             fontWeight: "600",
-            marginTop: "6px",
-            lineHeight: "1.35",
+            marginTop: "5px",
+            lineHeight: "1.3",
           }}
         >
           {order.address}
         </div>
 
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: "600",
-            marginTop: "2px",
-          }}
-        >
-          {order.district}
-        </div>
+        {order.district && (
+          <div
+            style={{
+              fontSize: "11px",
+              fontWeight: "700",
+              marginTop: "2px",
+            }}
+          >
+            {order.district}
+          </div>
+        )}
       </div>
 
-      {/* PRODUCT */}
+      {/* =================================
+          PRODUCTS
+          ================================= */}
 
       <div
         style={{
-          border: "1px solid #000",
+          border:
+            "1px solid #333",
+          borderRadius:
+            "2px",
           marginTop: "6px",
-          padding: "6px",
+          overflow: "hidden",
+        }}
+      >
+        {/* PRODUCT HEADER */}
+
+        <div
+          style={{
+            padding:
+              "5px 6px",
+            background:
+              "#f4f4f4",
+            borderBottom:
+              "1px solid #333",
+            display: "flex",
+            alignItems:
+              "center",
+            justifyContent:
+              "space-between",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "9px",
+              fontWeight: "800",
+              letterSpacing:
+                "0.7px",
+            }}
+          >
+            {isMultipleProducts
+              ? "ORDER ITEMS"
+              : "PRODUCT"}
+          </div>
+
+          <div
+            style={{
+              fontSize: "8px",
+              fontWeight: "700",
+            }}
+          >
+            {totalItemQuantity}{" "}
+            {totalItemQuantity === 1
+              ? "ITEM"
+              : "ITEMS"}
+          </div>
+        </div>
+
+        {/* PRODUCT ROWS */}
+
+        <div>
+          {items.map(
+            (
+              item,
+              index
+            ) => (
+              <div
+                key={
+                  item.id ??
+                  `${item.productId}-${index}`
+                }
+                style={{
+                  display:
+                    "flex",
+                  alignItems:
+                    "flex-start",
+                  justifyContent:
+                    "space-between",
+                  gap: "8px",
+                  padding:
+                    "5px 6px",
+                  borderBottom:
+                    index <
+                    items.length -
+                      1
+                      ? "1px solid #ddd"
+                      : "none",
+                }}
+              >
+                {/* PRODUCT NAME */}
+
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    fontSize:
+                      items.length >
+                      3
+                        ? "9px"
+                        : "10px",
+                    fontWeight:
+                      "700",
+                    lineHeight:
+                      "1.25",
+                  }}
+                >
+                  {item.productName}
+                </div>
+
+                {/* QUANTITY */}
+
+                <div
+                  style={{
+                    flexShrink: 0,
+                    minWidth:
+                      "32px",
+                    textAlign:
+                      "right",
+                    fontSize:
+                      "10px",
+                    fontWeight:
+                      "800",
+                  }}
+                >
+                  ×{" "}
+                  {Number(
+                    item.quantity ||
+                      0
+                  )}
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* =================================
+          PAYMENT / COD
+          ================================= */}
+
+      <div
+        style={{
+          marginTop: "6px",
+          border:
+            "2px solid #111",
+          borderRadius:
+            "2px",
+          textAlign:
+            "center",
+          padding:
+            "6px 5px",
         }}
       >
         <div
           style={{
-            fontSize: "15px",
-            fontWeight: "bold",
-            marginBottom: "4px",
-          }}
-        >
-          {order.productName}
-        </div>
-
-        <div
-          style={{
-            fontSize: "15px",
-            fontWeight: "bold",
-          }}
-        >
-          Qty: {order.quantity || 1}
-        </div>
-      </div>
-
-      {/* PAYMENT / COD */}
-
-      <div
-        style={{
-          marginTop: "6px",
-          border: "3px solid #000",
-          textAlign: "center",
-          padding: "7px",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "20px",
-            fontWeight: "bold",
+            fontSize: "19px",
+            fontWeight: "800",
+            letterSpacing:
+              "0.3px",
           }}
         >
           {isFullyPaid
             ? "PAID • COD ৳0"
-            : `COD ৳${dueAmount.toLocaleString()}`}
+            : `COD ৳${formatMoney(
+                dueAmount
+              )}`}
         </div>
 
         {isPartiallyPaid && (
           <div
             style={{
-              marginTop: "4px",
-              fontSize: "10px",
-              fontWeight: "bold",
+              marginTop:
+                "3px",
+              fontSize: "8px",
+              fontWeight:
+                "700",
             }}
           >
-            PARTIAL PAYMENT RECEIVED: ৳
-            {paidAmount.toLocaleString()}
+            PAID ৳
+            {formatMoney(
+              paidAmount
+            )}
+            {" • "}
+            DUE ৳
+            {formatMoney(
+              dueAmount
+            )}
           </div>
         )}
 
         <div
           style={{
-            marginTop: "3px",
-            fontSize: "9px",
-            fontWeight: "600",
+            marginTop:
+              "3px",
+            fontSize: "8px",
+            fontWeight:
+              "600",
           }}
         >
           Order Total: ৳
-          {total.toLocaleString()}
+          {formatMoney(
+            total
+          )}
           {" • "}
-          Payment: {paymentStatus}
+          Payment:{" "}
+          {paymentStatus}
         </div>
       </div>
 
-      {/* BARCODE */}
+      {/* =================================
+          BARCODE
+          ================================= */}
+
+      {order.consignmentId && (
+        <div
+          style={{
+            marginTop:
+              "7px",
+            display:
+              "flex",
+            flexDirection:
+              "column",
+            alignItems:
+              "center",
+            justifyContent:
+              "center",
+          }}
+        >
+          <Barcode
+            value={String(
+              order.consignmentId
+            )}
+            width={2.1}
+            height={70}
+            displayValue={
+              false
+            }
+            margin={0}
+            background="#ffffff"
+          />
+
+          <div
+            style={{
+              marginTop:
+                "4px",
+              fontSize:
+                "16px",
+              fontWeight:
+                "800",
+              letterSpacing:
+                "1px",
+              lineHeight:
+                "1",
+            }}
+          >
+            {
+              order.consignmentId
+            }
+          </div>
+        </div>
+      )}
+
+      {/* =================================
+          FOOTER
+          ================================= */}
 
       <div
         style={{
-          marginTop: "8px",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}
-      >
-        {order.consignmentId && (
-          <>
-            <Barcode
-              value={
-                order.consignmentId
-              }
-              width={1.8}
-              height={70}
-              displayValue={false}
-              margin={0}
-            />
-
-            <div
-              style={{
-                marginTop: "6px",
-                fontSize: "20px",
-                fontWeight: "700",
-                letterSpacing: "1px",
-              }}
-            >
-              {order.consignmentId}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* FOOTER */}
-
-      <div
-        style={{
-          marginTop: "auto",
-          textAlign: "center",
-          fontSize: "9px",
-          fontWeight: "bold",
+          marginTop:
+            "auto",
+          paddingTop:
+            "5px",
           borderTop:
             "1px solid #ddd",
-          paddingTop: "4px",
+          textAlign:
+            "center",
+          fontSize:
+            "8px",
+          fontWeight:
+            "700",
+          letterSpacing:
+            "0.2px",
         }}
       >
         THANK YOU FOR SHOPPING WITH BABY NEST

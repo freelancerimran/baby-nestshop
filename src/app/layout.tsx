@@ -10,6 +10,9 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import FacebookPixel from "@/components/facebook/FacebookPixel";
 import LayoutWrapper from "@/components/layout/LayoutWrapper";
+import FloatingCartBar from "@/components/cart/FloatingCartBar";
+
+
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -81,6 +84,7 @@ export default function RootLayout({
         <LayoutWrapper>
           <Footer />
         </LayoutWrapper>
+        <FloatingCartBar />
       </body>
     </html>
   );

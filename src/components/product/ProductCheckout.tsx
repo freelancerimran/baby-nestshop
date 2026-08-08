@@ -1,5 +1,6 @@
 import OrderForm from "@/components/OrderForm";
 import { Product } from "@/types/product";
+import QuickCartButton from "@/components/order/QuickCartButton";
 import {
   FaWhatsapp,
   FaFacebookMessenger,
@@ -140,9 +141,15 @@ export default function ProductCheckout({
 
         </div>
 
-        {/* Order Form */}
+{/* Quick Cart */}
 
-        <OrderForm product={product} />
+<div className="mb-4">
+  <QuickCartButton product={product} />
+</div>
+
+{/* Order Form */}
+
+<OrderForm product={product} />
 
         {/* WhatsApp + Messenger */}
 
