@@ -2,9 +2,9 @@ import ShippingLabel from "@/components/admin/ShippingLabel";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 /*
-==========================================
-GET SELECTED ORDERS DIRECTLY FROM DATABASE
-==========================================
+==================================================
+GET SELECTED ORDERS + ACTUAL ORDER ITEMS
+==================================================
 */
 
 async function getOrders(ids: string[]) {
@@ -12,52 +12,142 @@ async function getOrders(ids: string[]) {
     return [];
   }
 
+  /*
+  ================================================
+  GET MASTER ORDERS
+  ================================================
+  */
+
   const {
-    data,
-    error,
+    data: ordersData,
+    error: ordersError,
   } = await supabaseAdmin
     .from("orders")
     .select("*")
     .in("order_id", ids);
 
-  if (error) {
+  if (ordersError) {
     console.error(
       "PRINT LABEL ORDERS ERROR:",
-      error
+      ordersError
     );
 
     return [];
   }
 
+  const orders = ordersData || [];
+
   /*
-  ========================================
-  MAP DATABASE → SHIPPING LABEL
-  ========================================
+  ================================================
+  GET ACTUAL ORDER ITEMS
+  ================================================
+  
+  Multi-product orders are stored here.
   */
 
-  return (data || []).map(
-    (order) => {
-      const total = Number(
-        order.total ?? 0
-      );
+  const {
+    data: itemsData,
+    error: itemsError,
+  } = await supabaseAdmin
+    .from("order_items")
+    .select(
+      `
+        id,
+        order_id,
+        product_id,
+        product_name,
+        quantity,
+        unit_price,
+        line_total
+      `
+    )
+    .in("order_id", ids);
 
-      const paidAmount = Number(
-        order.paid_amount ?? 0
-      );
+  if (itemsError) {
+    console.error(
+      "PRINT LABEL ORDER ITEMS ERROR:",
+      itemsError
+    );
+
+    return [];
+  }
+
+  const orderItems = itemsData || [];
+
+  /*
+  ================================================
+  GROUP ITEMS BY ORDER ID
+  ================================================
+  */
+
+  const itemsByOrderId =
+    new Map<string, any[]>();
+
+  for (const item of orderItems) {
+    const existing =
+      itemsByOrderId.get(
+        item.order_id
+      ) || [];
+
+    existing.push({
+      id: item.id,
+
+      productId:
+        item.product_id,
+
+      productName:
+        item.product_name ||
+        "Product",
+
+      quantity:
+        Number(
+          item.quantity ?? 1
+        ),
+
+      unitPrice:
+        Number(
+          item.unit_price ?? 0
+        ),
+
+      lineTotal:
+        Number(
+          item.line_total ?? 0
+        ),
+    });
+
+    itemsByOrderId.set(
+      item.order_id,
+      existing
+    );
+  }
+
+  /*
+  ================================================
+  MAP DATABASE → SHIPPING LABEL
+  ================================================
+  */
+
+  return orders.map(
+    (order) => {
+      /*
+      ============================================
+      PAYMENT
+      ============================================
+      */
+
+      const total =
+        Number(
+          order.total ?? 0
+        );
+
+      const paidAmount =
+        Number(
+          order.paid_amount ?? 0
+        );
 
       /*
-      ======================================
-      IMPORTANT
-
-      due_amount = 0 is a valid value.
-
-      Never use:
-
-      order.due_amount || order.total
-
-      because 0 would incorrectly become
-      the full order total.
-      ======================================
+      IMPORTANT:
+      due_amount = 0 is valid.
       */
 
       const dueAmount =
@@ -65,17 +155,20 @@ async function getOrders(ids: string[]) {
         order.due_amount !== undefined
           ? Math.max(
               0,
-              Number(order.due_amount)
+              Number(
+                order.due_amount
+              )
             )
           : Math.max(
               0,
-              total - paidAmount
+              total -
+                paidAmount
             );
 
       /*
-      ======================================
-      PAYMENT STATUS FALLBACK
-      ======================================
+      ============================================
+      PAYMENT STATUS
+      ============================================
       */
 
       let paymentStatus =
@@ -86,7 +179,8 @@ async function getOrders(ids: string[]) {
           total > 0 &&
           dueAmount <= 0
         ) {
-          paymentStatus = "Paid";
+          paymentStatus =
+            "Paid";
         } else if (
           paidAmount > 0 &&
           dueAmount > 0
@@ -94,9 +188,67 @@ async function getOrders(ids: string[]) {
           paymentStatus =
             "Partially Paid";
         } else {
-          paymentStatus = "Unpaid";
+          paymentStatus =
+            "Unpaid";
         }
       }
+
+      /*
+      ============================================
+      ACTUAL PRODUCTS
+      ============================================
+      */
+
+      const items =
+        itemsByOrderId.get(
+          order.order_id
+        ) || [];
+
+      /*
+      ============================================
+      LEGACY FALLBACK
+      ============================================
+      
+      If an old order has no order_items,
+      use the master order product.
+      */
+
+      const finalItems =
+        items.length > 0
+          ? items
+          : [
+              {
+                productName:
+                  order.product_name ||
+                  "Product",
+
+                quantity:
+                  Number(
+                    order.quantity ??
+                      1
+                  ),
+
+                productId:
+                  order.product_id,
+
+                unitPrice:
+                  Number(
+                    order.product_price ??
+                      0
+                  ),
+
+                lineTotal:
+                  Number(
+                    order.total ?? 0
+                  ),
+              },
+            ];
+
+      /*
+      ============================================
+      RETURN
+      ============================================
+      */
 
       return {
         orderId:
@@ -112,10 +264,15 @@ async function getOrders(ids: string[]) {
           order.district || "",
 
         address:
-          order.address,
+          order.address || "",
+
+        /*
+        LEGACY PRODUCT
+        */
 
         productName:
-          order.product_name,
+          order.product_name ||
+          "Product",
 
         quantity:
           Number(
@@ -123,9 +280,14 @@ async function getOrders(ids: string[]) {
           ),
 
         /*
-        ====================================
+        ACTUAL ORDER ITEMS
+        */
+
+        items:
+          finalItems,
+
+        /*
         PAYMENT
-        ====================================
         */
 
         total,
@@ -137,9 +299,7 @@ async function getOrders(ids: string[]) {
         paymentStatus,
 
         /*
-        ====================================
         COURIER
-        ====================================
         */
 
         consignmentId:
@@ -154,9 +314,9 @@ async function getOrders(ids: string[]) {
 }
 
 /*
-==========================================
+==================================================
 PRINT LABELS PAGE
-==========================================
+==================================================
 */
 
 export default async function PrintLabelsPage({
@@ -170,9 +330,9 @@ export default async function PrintLabelsPage({
     await searchParams;
 
   /*
-  ========================================
+  ================================================
   ORDER IDS
-  ========================================
+  ================================================
   */
 
   const ids =
@@ -184,23 +344,18 @@ export default async function PrintLabelsPage({
       .filter(Boolean) || [];
 
   /*
-  ========================================
+  ================================================
   GET LATEST DATABASE DATA
-  ========================================
+  ================================================
   */
 
   const orders =
     await getOrders(ids);
 
   /*
-  ========================================
+  ================================================
   KEEP SAME ORDER AS SELECTED IDS
-  ========================================
-
-  Supabase .in() does not guarantee that
-  rows come back in the same order as the
-  selected IDs.
-  ========================================
+  ================================================
   */
 
   const selectedOrders =
@@ -208,16 +363,11 @@ export default async function PrintLabelsPage({
       .map((id) =>
         orders.find(
           (order) =>
-            order.orderId === id
+            order.orderId ===
+            id
         )
       )
-      .filter(
-        (
-          order
-        ): order is NonNullable<
-          typeof order
-        > => Boolean(order)
-      );
+      .filter(Boolean);
 
   return (
     <>
@@ -249,9 +399,9 @@ export default async function PrintLabelsPage({
           (order) => (
             <ShippingLabel
               key={
-                order.orderId
+                order!.orderId
               }
-              order={order}
+              order={order!}
             />
           )
         )}
