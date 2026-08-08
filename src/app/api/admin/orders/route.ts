@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function GET() {
   try {
@@ -9,7 +9,7 @@ export async function GET() {
     ========================================
     */
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("orders")
       .select("*")
       .order("created_at", {
@@ -50,8 +50,9 @@ export async function GET() {
     Multi-product orders store their
     individual products inside order_items.
 
-    We fetch all items in one query instead
-    of making a query for every order.
+    Admin API uses supabaseAdmin so
+    RLS/permission restrictions do not
+    incorrectly make Analytics empty.
     ========================================
     */
 
@@ -65,7 +66,7 @@ export async function GET() {
       const {
         data: itemsData,
         error: itemsError,
-      } = await supabase
+      } = await supabaseAdmin
         .from("order_items")
         .select(
           `
@@ -90,8 +91,7 @@ export async function GET() {
           {
             success: false,
             orders: [],
-            error:
-              itemsError.message,
+            error: itemsError.message,
           },
           {
             status: 500,
@@ -105,17 +105,6 @@ export async function GET() {
     /*
     ========================================
     GROUP ORDER ITEMS
-    ========================================
-
-    Creates:
-
-    {
-      "BN-XXXX": [
-        item,
-        item
-      ]
-    }
-
     ========================================
     */
 
@@ -182,13 +171,6 @@ export async function GET() {
         ====================================
         DUE AMOUNT
         ====================================
-
-        If database due_amount exists,
-        use it exactly.
-
-        Legacy NULL values are calculated
-        safely from total - paid amount.
-        ====================================
         */
 
         const hasStoredDueAmount =
@@ -197,9 +179,7 @@ export async function GET() {
 
         const dueAmount =
           hasStoredDueAmount
-            ? Number(
-                order.due_amount
-              )
+            ? Number(order.due_amount)
             : Math.max(
                 0,
                 total - paidAmount
@@ -434,8 +414,7 @@ export async function GET() {
           ),
 
           grandTotal: Number(
-            order.grand_total ??
-              total
+            order.grand_total ?? total
           ),
 
           totalItems: Number(
@@ -447,8 +426,7 @@ export async function GET() {
                 ) =>
                   sum +
                   Number(
-                    item.quantity ??
-                      0
+                    item.quantity ?? 0
                   ),
                 0
               )
