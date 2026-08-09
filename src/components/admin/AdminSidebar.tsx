@@ -14,6 +14,7 @@ import {
   WalletCards,
   Settings,
   BadgeDollarSign,
+  TicketPercent,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -57,6 +58,11 @@ const menuItems = [
     icon: WalletCards,
   },
   {
+    name: "Coupons",
+    href: "/admin/coupons",
+    icon: TicketPercent,
+  },
+  {
     name: "Facebook Pixel",
     href: "/admin/facebook-pixel",
     icon: BadgeDollarSign,
@@ -71,49 +77,76 @@ const menuItems = [
 export default function AdminSidebar() {
   const pathname = usePathname();
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
   /*
-  ========================================
-  LOAD SIDEBAR STATE
-  ========================================
+  ============================================================
+  IMPORTANT HYDRATION SAFETY
+  ============================================================
+
+  Server + first client render always start expanded.
+
+  After hydration, localStorage is read and the saved
+  collapsed/expanded state is applied.
+  ============================================================
   */
 
+  const [collapsed, setCollapsed] =
+    useState(false);
+
   useEffect(() => {
-    setMounted(true);
+    try {
+      const savedState =
+        localStorage.getItem(
+          "baby-nest-admin-sidebar"
+        );
 
-    const savedState =
-      localStorage.getItem(
-        "baby-nest-admin-sidebar"
+      if (
+        savedState ===
+        "collapsed"
+      ) {
+        setCollapsed(true);
+      }
+    } catch (error) {
+      console.error(
+        "Sidebar state error:",
+        error
       );
-
-    if (savedState === "collapsed") {
-      setCollapsed(true);
     }
   }, []);
 
   /*
-  ========================================
+  ============================================================
   TOGGLE SIDEBAR
-  ========================================
+  ============================================================
   */
 
   function toggleSidebar() {
-    const nextState = !collapsed;
+    setCollapsed(
+      (previous) => {
+        const nextState =
+          !previous;
 
-    setCollapsed(nextState);
+        try {
+          localStorage.setItem(
+            "baby-nest-admin-sidebar",
+            nextState
+              ? "collapsed"
+              : "expanded"
+          );
+        } catch (error) {
+          console.error(
+            "Sidebar save error:",
+            error
+          );
+        }
 
-    localStorage.setItem(
-      "baby-nest-admin-sidebar",
-      nextState
-        ? "collapsed"
-        : "expanded"
+        return nextState;
+      }
     );
   }
 
   return (
     <aside
+      suppressHydrationWarning
       className={`
         hidden
         lg:flex
@@ -127,12 +160,17 @@ export default function AdminSidebar() {
         duration-300
         ease-in-out
         relative
-        ${collapsed ? "w-[72px]" : "w-[240px]"}
+        ${
+          collapsed
+            ? "w-[72px]"
+            : "w-[240px]"
+        }
       `}
     >
-      {/* ========================================
+
+      {/* ====================================================
           BRAND
-          ======================================== */}
+          ==================================================== */}
 
       <div
         className={`
@@ -151,16 +189,27 @@ export default function AdminSidebar() {
           }
         `}
       >
+
         {collapsed ? (
-          /* COLLAPSED BRAND */
           <div
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-sm font-extrabold text-white shadow-sm"
+            className="
+              flex
+              h-10
+              w-10
+              items-center
+              justify-center
+              rounded-xl
+              bg-blue-600
+              text-sm
+              font-extrabold
+              text-white
+              shadow-sm
+            "
             title="Baby Nest ERP"
           >
             BN
           </div>
         ) : (
-          /* EXPANDED BRAND */
           <div className="overflow-hidden whitespace-nowrap">
             <h1 className="text-xl font-bold text-blue-600">
               Baby Nest ERP
@@ -172,9 +221,9 @@ export default function AdminSidebar() {
           </div>
         )}
 
-        {/* ========================================
-            TOGGLE BUTTON
-            ======================================== */}
+        {/* ==================================================
+            COLLAPSE BUTTON
+            ================================================== */}
 
         <button
           type="button"
@@ -189,11 +238,12 @@ export default function AdminSidebar() {
               ? "Expand sidebar"
               : "Collapse sidebar"
           }
-          className={`
+          className="
             absolute
             top-1/2
             -translate-y-1/2
             z-20
+            -right-3.5
             flex
             h-7
             w-7
@@ -209,24 +259,23 @@ export default function AdminSidebar() {
             duration-200
             hover:bg-gray-50
             hover:text-blue-600
-            ${
-              collapsed
-                ? "-right-3.5"
-                : "-right-3.5"
-            }
-          `}
+          "
         >
           {collapsed ? (
-            <ChevronRight size={15} />
+            <ChevronRight
+              size={15}
+            />
           ) : (
-            <ChevronLeft size={15} />
+            <ChevronLeft
+              size={15}
+            />
           )}
         </button>
       </div>
 
-      {/* ========================================
+      {/* ====================================================
           NAVIGATION
-          ======================================== */}
+          ==================================================== */}
 
       <nav
         className={`
@@ -243,99 +292,120 @@ export default function AdminSidebar() {
           }
         `}
       >
+
         <div className="space-y-1.5">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
 
-            const isActive =
-              item.href === "/admin"
-                ? pathname === "/admin"
-                : pathname === item.href ||
-                  pathname.startsWith(
-                    `${item.href}/`
-                  );
+          {menuItems.map(
+            (item) => {
+              const Icon =
+                item.icon;
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={
-                  collapsed
-                    ? item.name
-                    : undefined
-                }
-                className={`
-                  group
-                  relative
-                  flex
-                  h-11
-                  items-center
-                  rounded-xl
-                  transition-all
-                  duration-200
-                  ${
+              const isActive =
+                item.href ===
+                "/admin"
+                  ? pathname ===
+                    "/admin"
+                  : pathname ===
+                      item.href ||
+                    pathname.startsWith(
+                      `${item.href}/`
+                    );
+
+              return (
+                <Link
+                  key={
+                    item.href
+                  }
+                  href={
+                    item.href
+                  }
+                  title={
                     collapsed
-                      ? "justify-center px-0"
-                      : "gap-3 px-3"
+                      ? item.name
+                      : undefined
                   }
-                  ${
-                    isActive
-                      ? "bg-blue-600 text-white shadow-md shadow-blue-100"
-                      : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                  }
-                `}
-              >
-                <Icon
-                  size={20}
-                  strokeWidth={
-                    isActive ? 2.2 : 1.9
-                  }
-                  className="flex-shrink-0"
-                />
+                  className={`
+                    group
+                    relative
+                    flex
+                    h-11
+                    items-center
+                    rounded-xl
+                    transition-all
+                    duration-200
+                    ${
+                      collapsed
+                        ? "justify-center px-0"
+                        : "gap-3 px-3"
+                    }
+                    ${
+                      isActive
+                        ? "bg-blue-600 text-white shadow-md shadow-blue-100"
+                        : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                    }
+                  `}
+                >
 
-                {!collapsed && (
-                  <span className="truncate whitespace-nowrap text-sm font-medium">
-                    {item.name}
-                  </span>
-                )}
+                  <Icon
+                    size={20}
+                    strokeWidth={
+                      isActive
+                        ? 2.2
+                        : 1.9
+                    }
+                    className="flex-shrink-0"
+                  />
 
-                {/* ====================================
-                    CUSTOM TOOLTIP
-                    ==================================== */}
+                  {!collapsed && (
+                    <span className="truncate whitespace-nowrap text-sm font-medium">
+                      {
+                        item.name
+                      }
+                    </span>
+                  )}
 
-                {collapsed && (
-                  <span
-                    className="
-                      pointer-events-none
-                      absolute
-                      left-[calc(100%+12px)]
-                      z-50
-                      whitespace-nowrap
-                      rounded-lg
-                      bg-gray-900
-                      px-3
-                      py-2
-                      text-xs
-                      font-medium
-                      text-white
-                      opacity-0
-                      shadow-lg
-                      transition-opacity
-                      duration-150
-                      group-hover:opacity-100
-                    "
-                  >
-                    {item.name}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+                  {/* ==================================================
+                      COLLAPSED TOOLTIP
+                      ================================================== */}
+
+                  {collapsed && (
+                    <span
+                      className="
+                        pointer-events-none
+                        absolute
+                        left-[calc(100%+12px)]
+                        z-50
+                        whitespace-nowrap
+                        rounded-lg
+                        bg-gray-900
+                        px-3
+                        py-2
+                        text-xs
+                        font-medium
+                        text-white
+                        opacity-0
+                        shadow-lg
+                        transition-opacity
+                        duration-150
+                        group-hover:opacity-100
+                      "
+                    >
+                      {
+                        item.name
+                      }
+                    </span>
+                  )}
+
+                </Link>
+              );
+            }
+          )}
+
         </div>
 
-        {/* ========================================
+        {/* ==================================================
             LOGOUT
-            ======================================== */}
+            ================================================== */}
 
         <div
           className={`
@@ -350,6 +420,7 @@ export default function AdminSidebar() {
             }
           `}
         >
+
           <div
             className={`
               transition-all
@@ -368,8 +439,11 @@ export default function AdminSidebar() {
           >
             <AdminLogoutButton />
           </div>
+
         </div>
+
       </nav>
+
     </aside>
   );
 }

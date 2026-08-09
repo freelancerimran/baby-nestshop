@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { X } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import {
+  usePathname,
+  useRouter,
+} from "next/navigation";
 
 import {
   LayoutDashboard,
@@ -14,6 +17,7 @@ import {
   WalletCards,
   Settings,
   BadgeDollarSign,
+  TicketPercent,
 } from "lucide-react";
 
 const menuItems = [
@@ -55,11 +59,19 @@ const menuItems = [
     icon: WalletCards,
   },
 
+  // Coupons
+  {
+    name: "Coupons",
+    href: "/admin/coupons",
+    icon: TicketPercent,
+  },
+
   {
     name: "Facebook Pixel",
     href: "/admin/facebook-pixel",
     icon: BadgeDollarSign,
   },
+
   {
     name: "Settings",
     href: "/admin/settings",
@@ -74,93 +86,166 @@ export default function AdminMobileSidebar({
   open: boolean;
   onClose: () => void;
 }) {
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname =
+    usePathname();
 
-  if (!open) return null;
+  const router =
+    useRouter();
+
+  if (!open) {
+    return null;
+  }
 
   async function handleLogout() {
     try {
-      await fetch("/api/admin/logout", {
-        method: "POST",
-      });
+      await fetch(
+        "/api/admin/logout",
+        {
+          method: "POST",
+        }
+      );
 
-      router.push("/admin/login");
+      router.push(
+        "/admin/login"
+      );
+
       router.refresh();
     } catch (error) {
-      console.error(error);
+      console.error(
+        error
+      );
     }
   }
 
   return (
     <div className="fixed inset-0 z-[9999] lg:hidden">
-      {/* Overlay */}
+
+      {/* ========================================
+          OVERLAY
+          ======================================== */}
+
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={
+          onClose
+        }
       />
 
-      {/* Drawer */}
+      {/* ========================================
+          DRAWER
+          ======================================== */}
+
       <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl">
-        {/* Header */}
+
+        {/* ======================================
+            HEADER
+            ====================================== */}
+
         <div className="flex items-center justify-between border-b border-gray-200 p-4">
+
           <h2 className="text-lg font-bold text-gray-900">
             Baby Nest ERP
           </h2>
 
           <button
-            onClick={onClose}
+            type="button"
+            onClick={
+              onClose
+            }
             className="rounded-lg p-2 hover:bg-gray-100"
             aria-label="Close menu"
           >
             <X size={24} />
           </button>
+
         </div>
 
-        {/* Menu */}
+        {/* ======================================
+            MENU
+            ====================================== */}
+
         <div className="p-4">
+
           <div className="space-y-2">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
 
-              const isActive =
-                item.href === "/admin"
-                  ? pathname === "/admin"
-                  : pathname === item.href ||
-                    pathname.startsWith(
-                      `${item.href}/`
-                    );
+            {menuItems.map(
+              (item) => {
+                const Icon =
+                  item.icon;
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onClose}
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-all ${
-                    isActive
-                      ? "bg-blue-600 text-white shadow-md"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
-                >
-                  <Icon size={20} />
+                const isActive =
+                  item.href ===
+                  "/admin"
+                    ? pathname ===
+                      "/admin"
+                    : pathname ===
+                        item.href ||
+                      pathname.startsWith(
+                        `${item.href}/`
+                      );
 
-                  <span className="font-medium">
-                    {item.name}
-                  </span>
-                </Link>
-              );
-            })}
+                return (
+                  <Link
+                    key={
+                      item.href
+                    }
+                    href={
+                      item.href
+                    }
+                    onClick={
+                      onClose
+                    }
+                    className={`
+                      flex
+                      items-center
+                      gap-3
+                      rounded-xl
+                      px-4
+                      py-3
+                      transition-all
+                      ${
+                        isActive
+                          ? "bg-blue-600 text-white shadow-md"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }
+                    `}
+                  >
+
+                    <Icon
+                      size={20}
+                    />
+
+                    <span className="font-medium">
+                      {
+                        item.name
+                      }
+                    </span>
+
+                  </Link>
+                );
+              }
+            )}
+
           </div>
 
-          {/* Logout */}
+          {/* ====================================
+              LOGOUT
+              ==================================== */}
+
           <div className="mt-6 border-t border-gray-200 pt-4">
+
             <button
-              onClick={handleLogout}
+              type="button"
+              onClick={
+                handleLogout
+              }
               className="w-full rounded-xl bg-red-500 px-4 py-3 font-medium text-white transition hover:bg-red-600"
             >
               Logout
             </button>
+
           </div>
+
         </div>
       </div>
     </div>

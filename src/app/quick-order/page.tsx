@@ -68,7 +68,6 @@ export default function QuickOrderPage() {
     deliveryCharge -
     discount;
 
-
   /*
   ============================================================
   DELIVERY CHARGE
@@ -100,7 +99,6 @@ export default function QuickOrderPage() {
     items,
     deliveryArea,
   ]);
-
 
   /*
   ============================================================
@@ -151,7 +149,6 @@ export default function QuickOrderPage() {
       `✅ ৳${coupon.discount} টাকা ছাড় প্রয়োগ হয়েছে`
     );
   };
-
 
   /*
   ============================================================
@@ -205,7 +202,6 @@ export default function QuickOrderPage() {
     return true;
   };
 
-
   /*
   ============================================================
   COMPLETE ORDER
@@ -232,6 +228,58 @@ export default function QuickOrderPage() {
 
       try {
         setIsSubmitting(true);
+
+        /*
+        ======================================================
+        FACEBOOK — INITIATE CHECKOUT
+        ======================================================
+
+        This is the browser-side event.
+
+        It fires BEFORE the order API request,
+        matching the existing Single Product flow.
+        ======================================================
+        */
+
+        if (
+          typeof window !==
+            "undefined" &&
+          window.fbq
+        ) {
+          window.fbq(
+            "track",
+            "InitiateCheckout",
+            {
+              content_ids:
+                items.map(
+                  (item) =>
+                    String(
+                      item.productId
+                    )
+                ),
+
+              content_name:
+                items
+                  .map(
+                    (item) =>
+                      item.productName
+                  )
+                  .join(", "),
+
+              content_type:
+                "product",
+
+              currency:
+                "BDT",
+
+              value:
+                grandTotal,
+
+              num_items:
+                totalItems,
+            }
+          );
+        }
 
         /*
         ======================================================
@@ -264,6 +312,7 @@ export default function QuickOrderPage() {
                 discount,
 
                 subtotal,
+
                 total:
                   grandTotal,
 
@@ -272,10 +321,8 @@ export default function QuickOrderPage() {
             }
           );
 
-
         const result =
           await response.json();
-
 
         /*
         ======================================================
@@ -295,18 +342,14 @@ export default function QuickOrderPage() {
           return;
         }
 
-
         /*
         ======================================================
-        IMPORTANT
+        GET ORDER ID
+        ======================================================
 
-        NEW API RETURNS:
+        Quick Order API returns:
 
         result.orderId
-
-        NOT:
-
-        result.orderIds[0]
         ======================================================
         */
 
@@ -315,7 +358,6 @@ export default function QuickOrderPage() {
             result.orderId ||
               ""
           ).trim();
-
 
         /*
         ======================================================
@@ -336,6 +378,69 @@ export default function QuickOrderPage() {
           return;
         }
 
+        /*
+        ======================================================
+        FACEBOOK — PURCHASE
+        ======================================================
+
+        IMPORTANT:
+
+        Browser:
+
+        eventID = orderId
+
+        Server:
+
+        event_id = same orderId
+
+        This allows Meta to deduplicate
+        Browser + Server Purchase events.
+        ======================================================
+        */
+
+        if (
+          typeof window !==
+            "undefined" &&
+          window.fbq
+        ) {
+          window.fbq(
+            "track",
+            "Purchase",
+            {
+              content_ids:
+                items.map(
+                  (item) =>
+                    String(
+                      item.productId
+                    )
+                ),
+
+              content_name:
+                items
+                  .map(
+                    (item) =>
+                      item.productName
+                  )
+                  .join(", "),
+
+              content_type:
+                "product",
+
+              currency:
+                "BDT",
+
+              value:
+                grandTotal,
+
+              num_items:
+                totalItems,
+            },
+            {
+              eventID:
+                orderId,
+            }
+          );
+        }
 
         /*
         ======================================================
@@ -345,19 +450,9 @@ export default function QuickOrderPage() {
 
         clearCart();
 
-
         /*
         ======================================================
         REDIRECT
-
-        ONLY ONE REDIRECT.
-
-        The previous code had both:
-
-        router.replace()
-        router.push()
-
-        That has now been removed.
         ======================================================
         */
 
@@ -366,7 +461,6 @@ export default function QuickOrderPage() {
             orderId
           )}`
         );
-
       } catch (error) {
         console.error(
           "QUICK ORDER ERROR:",
@@ -382,7 +476,6 @@ export default function QuickOrderPage() {
         );
       }
     };
-
 
   /*
   ============================================================
@@ -425,7 +518,6 @@ export default function QuickOrderPage() {
     );
   }
 
-
   /*
   ============================================================
   PAGE
@@ -440,7 +532,6 @@ export default function QuickOrderPage() {
         <h1 className="mb-8 text-4xl font-bold">
           Quick Order
         </h1>
-
 
         <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
 
@@ -471,7 +562,6 @@ export default function QuickOrderPage() {
                       className="h-24 w-24 rounded-xl object-cover"
                     />
 
-
                     <div className="flex-1">
 
                       <h2 className="text-xl font-bold">
@@ -486,7 +576,6 @@ export default function QuickOrderPage() {
                           item.unitPrice
                         }
                       </p>
-
 
                       {/* Quantity */}
 
@@ -504,13 +593,11 @@ export default function QuickOrderPage() {
                           −
                         </button>
 
-
                         <div className="min-w-[40px] text-center text-lg font-bold">
                           {
                             item.quantity
                           }
                         </div>
-
 
                         <button
                           type="button"
@@ -523,7 +610,6 @@ export default function QuickOrderPage() {
                         >
                           +
                         </button>
-
 
                         <button
                           type="button"
@@ -549,7 +635,6 @@ export default function QuickOrderPage() {
 
           </div>
 
-
           {/* ==================================================
               RIGHT SIDE
           ================================================== */}
@@ -559,7 +644,6 @@ export default function QuickOrderPage() {
             <h2 className="mb-6 text-3xl font-bold">
               Order Summary
             </h2>
-
 
             <div className="space-y-4">
 
@@ -577,7 +661,6 @@ export default function QuickOrderPage() {
 
               </div>
 
-
               <div className="flex items-center justify-between">
 
                 <span>
@@ -593,7 +676,6 @@ export default function QuickOrderPage() {
 
               </div>
 
-
               <div className="flex items-center justify-between">
 
                 <span>
@@ -606,9 +688,7 @@ export default function QuickOrderPage() {
 
               </div>
 
-
               <hr />
-
 
               <div className="flex items-center justify-between text-2xl font-bold">
 
@@ -627,9 +707,7 @@ export default function QuickOrderPage() {
 
             </div>
 
-
             <hr className="my-6" />
-
 
             {/* ==================================================
                 CUSTOMER FORM
@@ -641,7 +719,6 @@ export default function QuickOrderPage() {
                 Customer Information
               </h3>
 
-
               {errorMessage && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">
                   {
@@ -649,7 +726,6 @@ export default function QuickOrderPage() {
                   }
                 </div>
               )}
-
 
               <input
                 type="text"
@@ -668,7 +744,6 @@ export default function QuickOrderPage() {
                 className="w-full rounded-xl border px-4 py-3"
               />
 
-
               <input
                 type="tel"
                 value={
@@ -685,7 +760,6 @@ export default function QuickOrderPage() {
                 placeholder="মোবাইল নম্বর"
                 className="w-full rounded-xl border px-4 py-3"
               />
-
 
               <select
                 value={
@@ -727,7 +801,6 @@ export default function QuickOrderPage() {
 
               </select>
 
-
               <textarea
                 rows={3}
                 value={
@@ -744,7 +817,6 @@ export default function QuickOrderPage() {
                 placeholder="সম্পূর্ণ ঠিকানা"
                 className="w-full rounded-xl border px-4 py-3"
               />
-
 
               <textarea
                 rows={2}
@@ -765,9 +837,7 @@ export default function QuickOrderPage() {
 
             </div>
 
-
             <hr className="my-6" />
-
 
             {/* ==================================================
                 DELIVERY
@@ -800,7 +870,6 @@ export default function QuickOrderPage() {
 
               </select>
 
-
               <div className="flex gap-2">
 
                 <input
@@ -820,7 +889,6 @@ export default function QuickOrderPage() {
                   className="flex-1 rounded-xl border px-4 py-3"
                 />
 
-
                 <button
                   type="button"
                   onClick={
@@ -833,7 +901,6 @@ export default function QuickOrderPage() {
 
               </div>
 
-
               {couponMessage && (
                 <p className="text-sm text-green-600">
                   {
@@ -844,9 +911,7 @@ export default function QuickOrderPage() {
 
             </div>
 
-
             <hr className="my-6" />
-
 
             {/* ==================================================
                 TOTAL
@@ -869,7 +934,6 @@ export default function QuickOrderPage() {
 
               </div>
 
-
               <div className="flex justify-between">
 
                 <span>
@@ -884,7 +948,6 @@ export default function QuickOrderPage() {
                 </span>
 
               </div>
-
 
               {discount > 0 && (
                 <div className="flex justify-between text-green-600">
@@ -903,9 +966,7 @@ export default function QuickOrderPage() {
                 </div>
               )}
 
-
               <hr />
-
 
               <div className="flex justify-between text-2xl font-bold">
 
@@ -923,7 +984,6 @@ export default function QuickOrderPage() {
               </div>
 
             </div>
-
 
             {/* ==================================================
                 COMPLETE ORDER
