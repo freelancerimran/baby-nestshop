@@ -5,8 +5,18 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { districts } from "@/data/districts";
-import { coupons } from "@/data/coupons";
 import { useQuickCart } from "@/lib/store/quick-cart";
+
+type AvailableCoupon = {
+  id: number;
+  code: string;
+  discountType: "fixed";
+  discountValue: number;
+  minimumOrderAmount: number;
+  expiresAt: string | null;
+  productId: string;
+  productName: string;
+};
 
 export default function QuickOrderPage() {
   const {
@@ -21,6 +31,12 @@ export default function QuickOrderPage() {
 
   const router = useRouter();
 
+  /*
+  ============================================================
+  CUSTOMER INFORMATION
+  ============================================================
+  */
+
   const [customerName, setCustomerName] =
     useState("");
 
@@ -28,9 +44,6 @@ export default function QuickOrderPage() {
     useState("");
 
   const [address, setAddress] =
-    useState("");
-
-  const [note, setNote] =
     useState("");
 
   const [district, setDistrict] =
@@ -42,14 +55,41 @@ export default function QuickOrderPage() {
   const [deliveryCharge, setDeliveryCharge] =
     useState(0);
 
+  /*
+  ============================================================
+  COUPON
+  ============================================================
+  */
+
+  const [availableCoupons, setAvailableCoupons] =
+    useState<AvailableCoupon[]>([]);
+
+  const [loadingCoupons, setLoadingCoupons] =
+    useState(false);
+
   const [couponCode, setCouponCode] =
     useState("");
+
+  const [appliedCoupon, setAppliedCoupon] =
+    useState<AvailableCoupon | null>(null);
 
   const [discount, setDiscount] =
     useState(0);
 
   const [couponMessage, setCouponMessage] =
     useState("");
+
+  const [couponError, setCouponError] =
+    useState("");
+
+  const [isApplyingCoupon, setIsApplyingCoupon] =
+    useState(false);
+
+  /*
+  ============================================================
+  GENERAL STATE
+  ============================================================
+  */
 
   const [errorMessage, setErrorMessage] =
     useState("");
@@ -64,9 +104,12 @@ export default function QuickOrderPage() {
   */
 
   const grandTotal =
-    subtotal +
-    deliveryCharge -
-    discount;
+    Math.max(
+      0,
+      subtotal +
+        deliveryCharge -
+        discount
+    );
 
   /*
   ============================================================
@@ -80,17 +123,18 @@ export default function QuickOrderPage() {
       return;
     }
 
-    const highestCharge = Math.max(
-      ...items.map((item) =>
-        deliveryArea === "dhaka"
-          ? Number(
-              item.deliveryInsideDhaka || 0
-            )
-          : Number(
-              item.deliveryOutsideDhaka || 0
-            )
-      )
-    );
+    const highestCharge =
+      Math.max(
+        ...items.map((item) =>
+          deliveryArea === "dhaka"
+            ? Number(
+                item.deliveryInsideDhaka || 0
+              )
+            : Number(
+                item.deliveryOutsideDhaka || 0
+              )
+        )
+      );
 
     setDeliveryCharge(
       highestCharge
@@ -102,52 +146,429 @@ export default function QuickOrderPage() {
 
   /*
   ============================================================
+  LOAD AVAILABLE COUPONS
+  ============================================================
+
+  We check every cart product.
+
+  Only coupons allocated to products currently inside
+  the cart will be displayed.
+
+  ONE ORDER = ONE COUPON.
+  ============================================================
+  */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCoupons = async () => {
+      if (items.length === 0) {
+        setAvailableCoupons([]);
+        return;
+      }
+
+      try {
+        setLoadingCoupons(true);
+        setCouponError("");
+
+        const results: (
+          | AvailableCoupon
+          | null
+        )[] = await Promise.all(
+          items.map(
+            async (
+              item
+            ): Promise<AvailableCoupon | null> => {
+              try {
+                const params =
+                  new URLSearchParams({
+                    productId:
+                      String(
+                        item.productId
+                      ),
+
+                    subtotal:
+                      String(
+                        subtotal
+                      ),
+                  });
+
+                const response =
+                  await fetch(
+                    `/api/coupon/available?${params.toString()}`,
+                    {
+                      cache: "no-store",
+                    }
+                  );
+
+                if (!response.ok) {
+                  return null;
+                }
+
+                const data =
+                  await response.json();
+
+                if (
+                  !data?.success ||
+                  !data?.coupon
+                ) {
+                  return null;
+                }
+
+                const coupon =
+                  data.coupon;
+
+                return {
+                  id: Number(
+                    coupon.id
+                  ),
+
+                  code: String(
+                    coupon.code
+                  ),
+
+                  discountType:
+                    coupon.discountType,
+
+                  discountValue:
+                    Number(
+                      coupon.discountValue ||
+                        0
+                    ),
+
+                  minimumOrderAmount:
+                    Number(
+                      coupon.minimumOrderAmount ||
+                        0
+                    ),
+
+                  expiresAt:
+                    coupon.expiresAt ||
+                    null,
+
+                  productId:
+                    String(
+                      item.productId
+                    ),
+
+                  productName:
+                    item.productName,
+                } satisfies AvailableCoupon;
+              } catch (error) {
+                console.error(
+                  "Coupon availability error:",
+                  error
+                );
+
+                return null;
+              }
+            })
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        /*
+        --------------------------------------------------------
+        REMOVE NULL VALUES
+        --------------------------------------------------------
+        */
+
+        const validCoupons =
+          results.filter(
+            (
+              coupon
+            ): coupon is AvailableCoupon =>
+              coupon !== null
+          );
+
+        /*
+        --------------------------------------------------------
+        DEDUPLICATE COUPONS
+        --------------------------------------------------------
+        */
+
+        const uniqueCoupons =
+          Array.from(
+            new Map(
+              validCoupons.map(
+                (coupon) => [
+                  coupon.code
+                    .trim()
+                    .toUpperCase(),
+                  coupon,
+                ]
+              )
+            ).values()
+          );
+
+        setAvailableCoupons(
+          uniqueCoupons
+        );
+
+        /*
+        --------------------------------------------------------
+        REMOVE APPLIED COUPON IF IT IS NO LONGER AVAILABLE
+        --------------------------------------------------------
+        */
+
+        if (
+          appliedCoupon &&
+          !uniqueCoupons.some(
+            (coupon) =>
+              coupon.code
+                .trim()
+                .toUpperCase() ===
+              appliedCoupon.code
+                .trim()
+                .toUpperCase()
+          )
+        ) {
+          setAppliedCoupon(null);
+          setDiscount(0);
+          setCouponCode("");
+          setCouponMessage("");
+        }
+      } catch (error) {
+        console.error(
+          "Load coupons error:",
+          error
+        );
+
+        if (!cancelled) {
+          setAvailableCoupons([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCoupons(false);
+        }
+      }
+    };
+
+    loadCoupons();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    items,
+    subtotal,
+    appliedCoupon,
+  ]);
+
+  /*
+  ============================================================
+  CLEAR COUPON IF CART CHANGES
+  ============================================================
+  */
+
+  useEffect(() => {
+    if (!appliedCoupon) {
+      return;
+    }
+
+    const stillInCart =
+      items.some(
+        (item) =>
+          String(
+            item.productId
+          ) ===
+          String(
+            appliedCoupon.productId
+          )
+      );
+
+    if (!stillInCart) {
+      setAppliedCoupon(null);
+      setDiscount(0);
+      setCouponCode("");
+      setCouponMessage("");
+    }
+  }, [
+    items,
+    appliedCoupon,
+  ]);
+
+  /*
+  ============================================================
   APPLY COUPON
   ============================================================
   */
 
-  const applyCoupon = () => {
-    const coupon =
-      coupons.find(
-        (item) =>
-          item.code
-            .trim()
-            .toLowerCase() ===
-          couponCode
-            .trim()
-            .toLowerCase()
+  const applyCoupon = async (
+    selectedCode?: string
+  ) => {
+    if (isApplyingCoupon) {
+      return;
+    }
+
+    const cleanCode = (
+      selectedCode ||
+      couponCode
+    )
+      .trim()
+      .toUpperCase();
+
+    if (!cleanCode) {
+      setCouponError(
+        "কুপন কোড লিখুন"
       );
 
-    if (!coupon) {
-      setDiscount(0);
-
-      setCouponMessage(
-        "❌ কুপন কোড সঠিক নয়"
-      );
+      setCouponMessage("");
 
       return;
     }
 
-    if (
-      coupon.status !==
-      "active"
-    ) {
-      setDiscount(0);
-
-      setCouponMessage(
-        "❌ কুপনটি সক্রিয় নয়"
+    const matchingCoupon =
+      availableCoupons.find(
+        (coupon) =>
+          coupon.code
+            .trim()
+            .toUpperCase() ===
+          cleanCode
       );
+
+    if (!matchingCoupon) {
+      setCouponError(
+        "এই কুপনটি আপনার বর্তমান কার্টের জন্য প্রযোজ্য নয়"
+      );
+
+      setCouponMessage("");
 
       return;
     }
 
-    setDiscount(
-      coupon.discount
-    );
+    /*
+    ============================================================
+    ONE ORDER = ONE COUPON
+    ============================================================
+    */
 
-    setCouponMessage(
-      `✅ ৳${coupon.discount} টাকা ছাড় প্রয়োগ হয়েছে`
-    );
+    setIsApplyingCoupon(true);
+    setCouponError("");
+    setCouponMessage("");
+
+    try {
+      /*
+      ----------------------------------------------------------
+      SERVER VALIDATION
+      ----------------------------------------------------------
+
+      We use the product to which this coupon is allocated.
+      The server/database will perform the final validation.
+      ----------------------------------------------------------
+      */
+
+      const response =
+        await fetch(
+          "/api/coupon/validate",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              couponCode:
+                cleanCode,
+
+              productId:
+                matchingCoupon.productId,
+
+              subtotal:
+                subtotal,
+            }),
+          }
+        );
+
+      const result =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !result.success ||
+        !result.coupon
+      ) {
+        setDiscount(0);
+        setAppliedCoupon(null);
+
+        setCouponError(
+          result.error ||
+            result.message ||
+            "এই কুপনটি বর্তমানে ব্যবহার করা যাচ্ছে না"
+        );
+
+        return;
+      }
+
+      const validatedDiscount =
+        Math.min(
+          Number(
+            result.discount ||
+              result.coupon
+                ?.discountValue ||
+              0
+          ),
+          subtotal
+        );
+
+      /*
+      ----------------------------------------------------------
+      APPLY
+      ----------------------------------------------------------
+      */
+
+      setAppliedCoupon(
+        matchingCoupon
+      );
+
+      setCouponCode(
+        matchingCoupon.code
+      );
+
+      setDiscount(
+        validatedDiscount
+      );
+
+      setCouponMessage(
+        `✓ ${matchingCoupon.code} কুপন প্রয়োগ হয়েছে — ৳${validatedDiscount} ছাড়`
+      );
+
+      setCouponError("");
+    } catch (error) {
+      console.error(
+        "Apply coupon error:",
+        error
+      );
+
+      setDiscount(0);
+      setAppliedCoupon(null);
+
+      setCouponError(
+        "কুপন যাচাই করতে সমস্যা হয়েছে"
+      );
+    } finally {
+      setIsApplyingCoupon(
+        false
+      );
+    }
+  };
+
+  /*
+  ============================================================
+  REMOVE COUPON
+  ============================================================
+  */
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setDiscount(0);
+    setCouponMessage("");
+    setCouponError("");
   };
 
   /*
@@ -233,12 +654,6 @@ export default function QuickOrderPage() {
         ======================================================
         FACEBOOK — INITIATE CHECKOUT
         ======================================================
-
-        This is the browser-side event.
-
-        It fires BEFORE the order API request,
-        matching the existing Single Product flow.
-        ======================================================
         */
 
         if (
@@ -256,6 +671,20 @@ export default function QuickOrderPage() {
                     String(
                       item.productId
                     )
+                ),
+
+              contents:
+                items.map(
+                  (item) => ({
+                    id:
+                      String(
+                        item.productId
+                      ),
+                    quantity:
+                      Number(
+                        item.quantity
+                      ),
+                  })
                 ),
 
               content_name:
@@ -285,6 +714,14 @@ export default function QuickOrderPage() {
         ======================================================
         SEND CART TO API
         ======================================================
+
+        IMPORTANT:
+
+        We still send the selected coupon code.
+
+        The DATABASE RPC calculates the real discount.
+        Client-side discount is NOT trusted by the database.
+        ======================================================
         */
 
         const response =
@@ -303,13 +740,28 @@ export default function QuickOrderPage() {
                 phone,
                 district,
                 address,
-                note,
 
                 deliveryArea,
                 deliveryCharge,
 
-                couponCode,
-                discount,
+                couponCode:
+                  appliedCoupon?.code ||
+                  couponCode.trim() ||
+                  null,
+
+                /*
+                ------------------------------------------------
+                LEGACY FIELD
+                ------------------------------------------------
+
+                The database RPC now ignores client discount
+                and calculates the real discount itself.
+
+                We send 0 for safety.
+                ------------------------------------------------
+                */
+
+                discount: 0,
 
                 subtotal,
 
@@ -336,6 +788,7 @@ export default function QuickOrderPage() {
         ) {
           alert(
             result.message ||
+              result.error ||
               "Order Failed"
           );
 
@@ -346,11 +799,6 @@ export default function QuickOrderPage() {
         ======================================================
         GET ORDER ID
         ======================================================
-
-        Quick Order API returns:
-
-        result.orderId
-        ======================================================
         */
 
         const orderId =
@@ -358,12 +806,6 @@ export default function QuickOrderPage() {
             result.orderId ||
               ""
           ).trim();
-
-        /*
-        ======================================================
-        ORDER ID VALIDATION
-        ======================================================
-        */
 
         if (!orderId) {
           console.error(
@@ -380,21 +822,32 @@ export default function QuickOrderPage() {
 
         /*
         ======================================================
+        IMPORTANT:
+        USE SERVER CALCULATED VALUES
+        ======================================================
+        */
+
+        const serverGrandTotal =
+          Number(
+            result.grandTotal ??
+              result.total ??
+              grandTotal
+          );
+
+        const serverDiscount =
+          Number(
+            result.discount ??
+              discount
+          );
+
+        /*
+        ======================================================
         FACEBOOK — PURCHASE
         ======================================================
 
-        IMPORTANT:
+        Browser eventID = orderId
 
-        Browser:
-
-        eventID = orderId
-
-        Server:
-
-        event_id = same orderId
-
-        This allows Meta to deduplicate
-        Browser + Server Purchase events.
+        Server CAPI event_id = same orderId
         ======================================================
         */
 
@@ -415,6 +868,20 @@ export default function QuickOrderPage() {
                     )
                 ),
 
+              contents:
+                items.map(
+                  (item) => ({
+                    id:
+                      String(
+                        item.productId
+                      ),
+                    quantity:
+                      Number(
+                        item.quantity
+                      ),
+                  })
+                ),
+
               content_name:
                 items
                   .map(
@@ -430,10 +897,23 @@ export default function QuickOrderPage() {
                 "BDT",
 
               value:
-                grandTotal,
+                serverGrandTotal,
 
               num_items:
                 totalItems,
+
+              /*
+              Optional custom parameter.
+              This helps preserve coupon context.
+              */
+
+              coupon:
+                appliedCoupon?.code ||
+                couponCode.trim() ||
+                undefined,
+
+              discount:
+                serverDiscount,
             },
             {
               eventID:
@@ -525,21 +1005,21 @@ export default function QuickOrderPage() {
   */
 
   return (
-    <main className="min-h-screen bg-gray-50 py-10">
+    <main className="min-h-screen bg-gray-50 py-5 sm:py-10">
 
-      <div className="mx-auto max-w-6xl px-5">
+      <div className="mx-auto max-w-6xl px-3 sm:px-5">
 
-        <h1 className="mb-8 text-4xl font-bold">
+        <h1 className="mb-5 text-2xl font-bold sm:mb-8 sm:text-4xl">
           Quick Order
         </h1>
 
-        <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
+        <div className="grid gap-5 lg:grid-cols-[2fr_1fr] lg:gap-8">
 
           {/* ==================================================
-              LEFT SIDE
+              LEFT SIDE — CART
           ================================================== */}
 
-          <div className="space-y-5">
+          <div className="space-y-3 sm:space-y-5">
 
             {items.map(
               (item) => (
@@ -547,10 +1027,10 @@ export default function QuickOrderPage() {
                   key={
                     item.productId
                   }
-                  className="rounded-2xl border bg-white p-5 shadow-sm"
+                  className="rounded-2xl border bg-white p-3 shadow-sm sm:p-5"
                 >
 
-                  <div className="flex items-center gap-5">
+                  <div className="flex items-center gap-3 sm:gap-5">
 
                     <img
                       src={
@@ -559,18 +1039,18 @@ export default function QuickOrderPage() {
                       alt={
                         item.productName
                       }
-                      className="h-24 w-24 rounded-xl object-cover"
+                      className="h-20 w-20 shrink-0 rounded-xl object-cover sm:h-24 sm:w-24"
                     />
 
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1">
 
-                      <h2 className="text-xl font-bold">
+                      <h2 className="line-clamp-2 text-base font-bold sm:text-xl">
                         {
                           item.productName
                         }
                       </h2>
 
-                      <p className="mt-2 text-lg font-semibold text-teal-700">
+                      <p className="mt-1 text-base font-semibold text-teal-700 sm:mt-2 sm:text-lg">
                         ৳{" "}
                         {
                           item.unitPrice
@@ -579,7 +1059,7 @@ export default function QuickOrderPage() {
 
                       {/* Quantity */}
 
-                      <div className="mt-5 flex items-center gap-3">
+                      <div className="mt-3 flex items-center gap-2 sm:mt-5 sm:gap-3">
 
                         <button
                           type="button"
@@ -588,12 +1068,12 @@ export default function QuickOrderPage() {
                               item.productId
                             )
                           }
-                          className="flex h-10 w-10 items-center justify-center rounded-xl border transition hover:bg-gray-100"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl border transition hover:bg-gray-100 sm:h-10 sm:w-10"
                         >
                           −
                         </button>
 
-                        <div className="min-w-[40px] text-center text-lg font-bold">
+                        <div className="min-w-[30px] text-center font-bold sm:min-w-[40px] sm:text-lg">
                           {
                             item.quantity
                           }
@@ -606,7 +1086,7 @@ export default function QuickOrderPage() {
                               item.productId
                             )
                           }
-                          className="flex h-10 w-10 items-center justify-center rounded-xl border transition hover:bg-gray-100"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl border transition hover:bg-gray-100 sm:h-10 sm:w-10"
                         >
                           +
                         </button>
@@ -618,7 +1098,7 @@ export default function QuickOrderPage() {
                               item.productId
                             )
                           }
-                          className="ml-5 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100"
+                          className="ml-1 rounded-lg bg-red-50 px-2 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100 sm:ml-5 sm:px-3 sm:text-sm"
                         >
                           Remove
                         </button>
@@ -636,18 +1116,37 @@ export default function QuickOrderPage() {
           </div>
 
           {/* ==================================================
-              RIGHT SIDE
+              RIGHT SIDE — ORDER FORM
           ================================================== */}
 
-          <div className="sticky top-24 rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="h-fit rounded-2xl border bg-white p-4 shadow-sm sm:p-6 lg:sticky lg:top-24">
 
-            <h2 className="mb-6 text-3xl font-bold">
+            {/* ==================================================
+                FREE PALESTINE
+            ================================================== */}
+
+            <div className="mb-4 flex items-center justify-center gap-2 text-xs font-semibold text-gray-500 sm:mb-5 sm:text-sm">
+              <span className="h-px flex-1 bg-gray-200" />
+
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <span aria-hidden="true">🇵🇸</span>
+                <span>Free Palestine</span>
+              </span>
+
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <h2 className="mb-4 text-2xl font-bold sm:mb-6 sm:text-3xl">
               Order Summary
             </h2>
 
-            <div className="space-y-4">
+            {/* ==================================================
+                BASIC SUMMARY
+            ================================================== */}
 
-              <div className="flex items-center justify-between">
+            <div className="space-y-3">
+
+              <div className="flex items-center justify-between text-sm sm:text-base">
 
                 <span>
                   Total Products
@@ -661,7 +1160,7 @@ export default function QuickOrderPage() {
 
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between text-sm sm:text-base">
 
                 <span>
                   Subtotal
@@ -676,51 +1175,237 @@ export default function QuickOrderPage() {
 
               </div>
 
-              <div className="flex items-center justify-between">
+            </div>
 
-                <span>
-                  Delivery
-                </span>
+            <hr className="my-4 sm:my-6" />
 
-                <span>
-                  Next Step
-                </span>
+            {/* ==================================================
+                COUPON — FIRST / HIGH VISIBILITY
+            ================================================== */}
+
+            <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-3 sm:p-4">
+
+              <div className="mb-3 flex items-center justify-between">
+
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 sm:text-lg">
+                    🎟️ বিশেষ কুপন
+                  </h3>
+
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    একটি অর্ডারে একটি কুপন ব্যবহার করা যাবে
+                  </p>
+                </div>
+
+                {appliedCoupon && (
+                  <button
+                    type="button"
+                    onClick={
+                      removeCoupon
+                    }
+                    className="text-xs font-semibold text-red-600"
+                  >
+                    Remove
+                  </button>
+                )}
 
               </div>
 
-              <hr />
+              {/* ==================================================
+                  AVAILABLE COUPONS
+              ================================================== */}
 
-              <div className="flex items-center justify-between text-2xl font-bold">
+              {loadingCoupons ? (
+                <div className="rounded-xl bg-white p-3 text-center text-sm text-gray-500">
+                  কুপন খোঁজা হচ্ছে...
+                </div>
+              ) : availableCoupons.length > 0 ? (
+                <div className="space-y-2">
 
-                <span>
-                  Total
-                </span>
+                  {availableCoupons.map(
+                    (coupon) => {
+                      const isApplied =
+                        appliedCoupon?.code
+                          .trim()
+                          .toUpperCase() ===
+                        coupon.code
+                          .trim()
+                          .toUpperCase();
 
-                <span>
-                  ৳{" "}
-                  {
-                    subtotal
+                      return (
+                        <div
+                          key={
+                            coupon.id
+                          }
+                          className={`flex items-center justify-between gap-3 rounded-xl border bg-white p-3 ${
+                            isApplied
+                              ? "border-teal-500 ring-1 ring-teal-500"
+                              : "border-gray-200"
+                          }`}
+                        >
+
+                          <div className="min-w-0">
+
+                            <div className="flex items-center gap-2">
+
+                              <span className="truncate text-sm font-bold text-gray-900">
+                                {
+                                  coupon.code
+                                }
+                              </span>
+
+                              {isApplied && (
+                                <span className="shrink-0 rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-700">
+                                  Applied
+                                </span>
+                              )}
+
+                            </div>
+
+                            <p className="mt-1 text-xs text-gray-500">
+                              ৳
+                              {
+                                coupon.discountValue
+                              }{" "}
+                              টাকা ছাড়
+                            </p>
+
+                            {coupon.minimumOrderAmount &&
+                              coupon.minimumOrderAmount >
+                                0 && (
+                                <p className="mt-0.5 text-[10px] text-gray-400">
+                                  মিনিমাম অর্ডার ৳
+                                  {
+                                    coupon.minimumOrderAmount
+                                  }
+                                </p>
+                              )}
+
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={
+                              isApplied ||
+                              isApplyingCoupon
+                            }
+                            onClick={() =>
+                              applyCoupon(
+                                coupon.code
+                              )
+                            }
+                            className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition sm:px-4 ${
+                              isApplied
+                                ? "bg-teal-100 text-teal-700"
+                                : "bg-teal-600 text-white hover:bg-teal-700"
+                            } disabled:cursor-not-allowed`}
+                          >
+                            {isApplied
+                              ? "Applied ✓"
+                              : isApplyingCoupon
+                              ? "..."
+                              : "Apply Now"}
+                          </button>
+
+                        </div>
+                      );
+                    }
+                  )}
+
+                </div>
+              ) : (
+                <div className="rounded-xl bg-white p-3 text-center text-xs text-gray-500">
+                  এই কার্টের জন্য বর্তমানে কোনো বিশেষ কুপন নেই।
+                </div>
+              )}
+
+              {/* ==================================================
+                  MANUAL COUPON
+              ================================================== */}
+
+              <div className="mt-3 flex gap-2">
+
+                <input
+                  type="text"
+                  value={
+                    couponCode
                   }
-                </span>
+                  onChange={(
+                    e
+                  ) => {
+                    setCouponCode(
+                      e.target.value
+                    );
+
+                    if (
+                      couponError
+                    ) {
+                      setCouponError(
+                        ""
+                      );
+                    }
+                  }}
+                  onKeyDown={(
+                    e
+                  ) => {
+                    if (
+                      e.key ===
+                      "Enter"
+                    ) {
+                      e.preventDefault();
+
+                      applyCoupon();
+                    }
+                  }}
+                  placeholder="কুপন কোড লিখুন"
+                  className="min-w-0 flex-1 rounded-xl border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    applyCoupon()
+                  }
+                  disabled={
+                    isApplyingCoupon
+                  }
+                  className="shrink-0 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-gray-800 disabled:bg-gray-400"
+                >
+                  {isApplyingCoupon
+                    ? "..."
+                    : "Apply"}
+                </button>
 
               </div>
+
+              {couponMessage && (
+                <p className="mt-2 text-xs font-semibold text-teal-700">
+                  {couponMessage}
+                </p>
+              )}
+
+              {couponError && (
+                <p className="mt-2 text-xs font-semibold text-red-600">
+                  {couponError}
+                </p>
+              )}
 
             </div>
 
-            <hr className="my-6" />
+            <hr className="my-4 sm:my-6" />
 
             {/* ==================================================
-                CUSTOMER FORM
+                CUSTOMER INFORMATION
             ================================================== */}
 
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
 
-              <h3 className="text-xl font-bold">
+              <h3 className="text-lg font-bold sm:text-xl">
                 Customer Information
               </h3>
 
               {errorMessage && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   {
                     errorMessage
                   }
@@ -741,11 +1426,12 @@ export default function QuickOrderPage() {
                   )
                 }
                 placeholder="আপনার নাম"
-                className="w-full rounded-xl border px-4 py-3"
+                className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
 
               <input
                 type="tel"
+                inputMode="numeric"
                 value={
                   phone
                 }
@@ -758,7 +1444,7 @@ export default function QuickOrderPage() {
                   )
                 }
                 placeholder="মোবাইল নম্বর"
-                className="w-full rounded-xl border px-4 py-3"
+                className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
 
               <select
@@ -773,7 +1459,7 @@ export default function QuickOrderPage() {
                       .value
                   )
                 }
-                className="w-full rounded-xl border px-4 py-3"
+                className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               >
 
                 <option value="">
@@ -802,7 +1488,7 @@ export default function QuickOrderPage() {
               </select>
 
               <textarea
-                rows={3}
+                rows={2}
                 value={
                   address
                 }
@@ -815,35 +1501,22 @@ export default function QuickOrderPage() {
                   )
                 }
                 placeholder="সম্পূর্ণ ঠিকানা"
-                className="w-full rounded-xl border px-4 py-3"
-              />
-
-              <textarea
-                rows={2}
-                value={
-                  note
-                }
-                onChange={(
-                  e
-                ) =>
-                  setNote(
-                    e.target
-                      .value
-                  )
-                }
-                placeholder="বিশেষ নির্দেশনা (ঐচ্ছিক)"
-                className="w-full rounded-xl border px-4 py-3"
+                className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
 
             </div>
 
-            <hr className="my-6" />
+            <hr className="my-4 sm:my-6" />
 
             {/* ==================================================
                 DELIVERY
             ================================================== */}
 
-            <div className="space-y-4">
+            <div className="space-y-3">
+
+              <label className="text-sm font-semibold text-gray-700">
+                ডেলিভারি
+              </label>
 
               <select
                 value={
@@ -857,7 +1530,7 @@ export default function QuickOrderPage() {
                       .value
                   )
                 }
-                className="w-full rounded-xl border px-4 py-3"
+                className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               >
 
                 <option value="dhaka">
@@ -870,56 +1543,17 @@ export default function QuickOrderPage() {
 
               </select>
 
-              <div className="flex gap-2">
-
-                <input
-                  type="text"
-                  value={
-                    couponCode
-                  }
-                  onChange={(
-                    e
-                  ) =>
-                    setCouponCode(
-                      e.target
-                        .value
-                    )
-                  }
-                  placeholder="Coupon Code"
-                  className="flex-1 rounded-xl border px-4 py-3"
-                />
-
-                <button
-                  type="button"
-                  onClick={
-                    applyCoupon
-                  }
-                  className="rounded-xl bg-teal-600 px-5 text-white"
-                >
-                  Apply
-                </button>
-
-              </div>
-
-              {couponMessage && (
-                <p className="text-sm text-green-600">
-                  {
-                    couponMessage
-                  }
-                </p>
-              )}
-
             </div>
 
-            <hr className="my-6" />
+            <hr className="my-4 sm:my-6" />
 
             {/* ==================================================
-                TOTAL
+                FINAL TOTAL
             ================================================== */}
 
             <div className="space-y-3">
 
-              <div className="flex justify-between">
+              <div className="flex justify-between text-sm">
 
                 <span>
                   Subtotal
@@ -934,7 +1568,7 @@ export default function QuickOrderPage() {
 
               </div>
 
-              <div className="flex justify-between">
+              <div className="flex justify-between text-sm">
 
                 <span>
                   Delivery
@@ -950,10 +1584,10 @@ export default function QuickOrderPage() {
               </div>
 
               {discount > 0 && (
-                <div className="flex justify-between text-green-600">
+                <div className="flex justify-between text-sm font-semibold text-teal-700">
 
                   <span>
-                    Discount
+                    Coupon Discount
                   </span>
 
                   <span>
@@ -966,15 +1600,15 @@ export default function QuickOrderPage() {
                 </div>
               )}
 
-              <hr />
+              <div className="my-2 border-t" />
 
-              <div className="flex justify-between text-2xl font-bold">
+              <div className="flex justify-between text-xl font-bold sm:text-2xl">
 
                 <span>
                   Grand Total
                 </span>
 
-                <span>
+                <span className="text-teal-700">
                   ৳{" "}
                   {
                     grandTotal
@@ -997,12 +1631,16 @@ export default function QuickOrderPage() {
               disabled={
                 isSubmitting
               }
-              className="mt-8 w-full rounded-xl bg-teal-600 py-4 text-lg font-bold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              className="mt-5 w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white transition hover:bg-teal-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-gray-400 sm:mt-8 sm:py-4 sm:text-lg"
             >
               {isSubmitting
                 ? "অর্ডার পাঠানো হচ্ছে..."
-                : "Complete Order"}
+                : "অর্ডার কনফার্ম করুন"}
             </button>
+
+            <p className="mt-2 text-center text-[11px] text-gray-400">
+              Cash on Delivery • অর্ডার নিশ্চিত করতে উপরের তথ্যগুলো দিন
+            </p>
 
           </div>
 

@@ -5,8 +5,6 @@ import { useEffect, useState } from "react";
 import Button from "@/components/ui/Button";
 import { Product } from "@/types/product";
 import { districts } from "@/data/districts";
-import { useQuickCart } from "@/lib/store/quick-cart";
-
 type OrderFormProps = {
   product: Product;
 };
@@ -33,9 +31,6 @@ export default function OrderForm({
     useState("");
 
   const [address, setAddress] =
-    useState("");
-
-  const [note, setNote] =
     useState("");
 
   /*
@@ -100,20 +95,6 @@ export default function OrderForm({
 
   const [loadingStock, setLoadingStock] =
     useState(true);
-
-  /*
-  ========================================
-  QUICK CART
-  ========================================
-  */
-
-  const {
-    addItem,
-    isInCart,
-  } = useQuickCart();
-
-  const alreadyAdded =
-    isInCart(product.id);
 
   /*
   ========================================
@@ -644,8 +625,6 @@ export default function OrderForm({
 
       district,
 
-      note,
-
       deliveryArea,
 
       deliveryCharge,
@@ -828,6 +807,161 @@ export default function OrderForm({
   return (
     <div className="space-y-3.5">
 
+      {/* =====================================================
+          COUPON MODULE
+          Visible above the price summary and order button.
+          Existing coupon logic is unchanged.
+          ===================================================== */}
+
+      <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+
+        {!loadingCoupon &&
+          availableCoupon && (
+            <>
+              <div className="flex items-center justify-between gap-2 bg-emerald-50/70 px-3 py-1.5">
+
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="text-sm">🎟️</span>
+
+                  <span className="truncate text-xs font-bold text-gray-900 sm:text-sm">
+                    বিশেষ কুপন অফার
+                  </span>
+                </div>
+
+                <span className="shrink-0 text-[11px] font-semibold text-emerald-700">
+                  ৳{Number(
+                    availableCoupon.discountValue
+                  ).toLocaleString("en-US")} ছাড়
+                </span>
+
+              </div>
+
+              <div className="flex items-center justify-between gap-3 px-3 py-2">
+
+                <div className="min-w-0">
+
+                  <div className="flex items-center gap-1.5">
+
+                    <span className="truncate text-sm font-bold tracking-wide text-gray-900 sm:text-base">
+                      {availableCoupon.code}
+                    </span>
+
+                    <span className="shrink-0 text-xs text-gray-400">
+                      কুপন
+                    </span>
+
+                  </div>
+
+                  <p className="mt-0.5 text-[11px] font-medium text-emerald-600">
+                    কুপন: {availableCoupon.code}
+                  </p>
+
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleApplyFeaturedCoupon
+                  }
+                  disabled={
+                    isApplyingCoupon ||
+                    isSubmitting
+                  }
+                  className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm ${
+                    discount > 0 &&
+                    couponCode
+                      .trim()
+                      .toUpperCase() ===
+                      availableCoupon.code
+                        .trim()
+                        .toUpperCase()
+                      ? "bg-emerald-700"
+                      : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
+                >
+                  {isApplyingCoupon
+                    ? "Applying..."
+                    : discount > 0 &&
+                      couponCode
+                        .trim()
+                        .toUpperCase() ===
+                        availableCoupon.code
+                          .trim()
+                          .toUpperCase()
+                    ? "Applied ✓"
+                    : "Apply Now"}
+                </button>
+
+              </div>
+            </>
+          )}
+
+        {/* Manual Coupon Input */}
+
+        <div className="border-t border-emerald-100 px-3 py-2">
+
+          <div className="flex gap-2">
+
+            <input
+              type="text"
+              value={couponCode}
+              onChange={(e) => {
+                setCouponCode(
+                  e.target.value
+                );
+
+                if (
+                  discount > 0
+                ) {
+                  setDiscount(0);
+                  setCouponMessage("");
+                }
+              }}
+              placeholder="কুপন কোড"
+              className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm uppercase outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+            />
+
+            <button
+              type="button"
+              onClick={() =>
+                applyCoupon()
+              }
+              disabled={
+                isApplyingCoupon ||
+                isSubmitting
+              }
+              className="shrink-0 rounded-lg bg-teal-700 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-teal-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isApplyingCoupon
+                ? "Checking..."
+                : "Apply"}
+            </button>
+
+          </div>
+
+          {couponMessage && (
+            <div
+              className={`mt-1 px-1 text-xs font-medium ${
+                couponMessage.startsWith(
+                  "✅"
+                )
+                  ? "text-green-600"
+                  : couponMessage.startsWith(
+                      "কুপন যাচাই"
+                    )
+                  ? "text-gray-500"
+                  : "text-red-600"
+              }`}
+            >
+              {couponMessage}
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+
       <h2 className="text-xl font-bold text-gray-900">
         অর্ডার করুন
       </h2>
@@ -840,61 +974,66 @@ export default function OrderForm({
 
       {/* Quantity */}
 
-      <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
 
-        <label className="mb-2 block text-xs font-medium text-gray-700">
-          পরিমাণ (Quantity)
-        </label>
+        <div className="flex items-center justify-between gap-3">
 
-        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-gray-700">
+            পরিমাণ (Quantity)
+          </label>
 
-          <button
-            type="button"
-            onClick={() => {
-              setQuantity(
-                (prev) =>
-                  Math.max(
-                    1,
-                    prev - 1
-                  )
-              );
+          <div className="flex items-center gap-1.5">
 
-              setDiscount(0);
-              setCouponMessage("");
-            }}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-sm transition hover:bg-gray-100"
-          >
-            -
-          </button>
-
-          <div className="min-w-[50px] text-center text-sm font-bold">
-            {quantity}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              const nextQuantity =
-                Math.min(
-                  availableStock ||
-                    1,
-                  quantity + 1
+            <button
+              type="button"
+              onClick={() => {
+                setQuantity(
+                  (prev) =>
+                    Math.max(
+                      1,
+                      prev - 1
+                    )
                 );
 
-              setQuantity(
-                nextQuantity
-              );
+                setDiscount(0);
+                setCouponMessage("");
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-sm transition hover:bg-gray-100"
+            >
+              -
+            </button>
 
-              setDiscount(0);
-              setCouponMessage("");
-            }}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-sm transition hover:bg-gray-100"
-          >
-            +
-          </button>
+            <div className="w-8 text-center text-sm font-bold">
+              {quantity}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const nextQuantity =
+                  Math.min(
+                    availableStock ||
+                      1,
+                    quantity + 1
+                  );
+
+                setQuantity(
+                  nextQuantity
+                );
+
+                setDiscount(0);
+                setCouponMessage("");
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-sm transition hover:bg-gray-100"
+            >
+              +
+            </button>
+
+          </div>
 
         </div>
       </div>
+
 
       {/* Customer Name */}
 
@@ -910,6 +1049,7 @@ export default function OrderForm({
         className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
       />
 
+
       {/* Phone */}
 
       <input
@@ -923,6 +1063,7 @@ export default function OrderForm({
         placeholder="মোবাইল নম্বর"
         className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
       />
+
 
       {/* District */}
 
@@ -951,6 +1092,7 @@ export default function OrderForm({
         )}
       </select>
 
+
       {/* Address */}
 
       <textarea
@@ -961,210 +1103,113 @@ export default function OrderForm({
           )
         }
         placeholder="বাড়ি/ফ্ল্যাট নম্বর, বিল্ডিং, রোড, গ্রাম, এলাকা, উপজেলা ইত্যাদি লিখুন"
-        rows={3}
-        className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-      />
-
-      {/* Note */}
-
-      <textarea
-        value={note}
-        onChange={(e) =>
-          setNote(
-            e.target.value
-          )
-        }
-        placeholder="বিশেষ নির্দেশনা (ঐচ্ছিক)"
         rows={2}
-        className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
       />
+
 
       {/* Delivery Area */}
 
-      <select
-        value={deliveryArea}
-        onChange={(e) => {
-          const area =
-            e.target.value;
+      <div className="space-y-2">
 
-          setDeliveryArea(area);
+        <h3 className="text-sm font-bold text-gray-900">
+          ডেলিভারি এরিয়া নির্বাচন করুন
+        </h3>
 
-          if (
-            area === "dhaka"
-          ) {
-            setDeliveryCharge(
-              product.deliveryInsideDhaka
-            );
-          } else {
-            setDeliveryCharge(
-              product.deliveryOutsideDhaka
-            );
-          }
-        }}
-        className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-      >
-        <option value="dhaka">
-          ঢাকার ভিতরে
-        </option>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
 
-        <option value="outside">
-          ঢাকার বাইরে
-        </option>
-      </select>
-
-      {/* ========================================
-          COMPACT FEATURED COUPON
-          ======================================== */}
-
-      {!loadingCoupon &&
-        availableCoupon && (
-          <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
-
-            {/* Coupon Header */}
-
-            <div className="flex items-center gap-2 bg-emerald-50/70 px-3 py-2">
-
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm">
-                🎟️
-              </span>
-
-              <span className="text-xs font-bold text-gray-900 sm:text-sm">
-                বিশেষ কুপন অফার
-              </span>
-
-            </div>
-
-            {/* Coupon Content */}
-
-            <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-
-              <div className="min-w-0">
-
-                <div className="flex items-center gap-1.5">
-
-                  <span className="truncate text-sm font-bold tracking-wide text-gray-900 sm:text-base">
-                    {availableCoupon.code}
-                  </span>
-
-                  <span className="shrink-0 text-xs text-gray-400">
-                    কুপন
-                  </span>
-
-                </div>
-
-                <p className="mt-0.5 text-xs font-medium text-emerald-600">
-                  ৳
-                  {Number(
-                    availableCoupon.discountValue
-                  ).toLocaleString(
-                    "en-US"
-                  )}{" "}
-                  টাকা ছাড়
-                </p>
-
-              </div>
-
-              <button
-                type="button"
-                onClick={
-                  handleApplyFeaturedCoupon
-                }
-                disabled={
-                  isApplyingCoupon ||
-                  isSubmitting
-                }
-                className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm ${
-                  discount > 0 &&
-                  couponCode
-                    .trim()
-                    .toUpperCase() ===
-                    availableCoupon.code
-                      .trim()
-                      .toUpperCase()
-                    ? "bg-emerald-700"
-                    : "bg-emerald-600 hover:bg-emerald-700"
+          <button
+            type="button"
+            onClick={() => {
+              setDeliveryArea("dhaka");
+              setDeliveryCharge(
+                product.deliveryInsideDhaka
+              );
+            }}
+            aria-pressed={deliveryArea === "dhaka"}
+            className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+              deliveryArea === "dhaka"
+                ? "border-emerald-400 bg-emerald-50"
+                : "border-gray-200 bg-white hover:border-emerald-200 hover:bg-gray-50"
+            }`}
+          >
+            <div>
+              <p
+                className={`text-sm font-bold ${
+                  deliveryArea === "dhaka"
+                    ? "text-emerald-700"
+                    : "text-gray-800"
                 }`}
               >
-                {isApplyingCoupon
-                  ? "Applying..."
-                  : discount > 0 &&
-                    couponCode
-                      .trim()
-                      .toUpperCase() ===
-                      availableCoupon.code
-                        .trim()
-                        .toUpperCase()
-                  ? "Applied ✓"
-                  : "Apply Now"}
-              </button>
-
+                ঢাকার ভিতরে
+              </p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                ৳{Number(
+                  product.deliveryInsideDhaka
+                ).toLocaleString("en-US")} ডেলিভারি চার্জ
+              </p>
             </div>
 
-          </div>
-        )}
+            {deliveryArea === "dhaka" && (
+              <span
+                aria-hidden="true"
+                className="text-xl font-bold text-emerald-600"
+              >
+                ✓
+              </span>
+            )}
+          </button>
 
-      {/* Coupon Input */}
+          <button
+            type="button"
+            onClick={() => {
+              setDeliveryArea("outside");
+              setDeliveryCharge(
+                product.deliveryOutsideDhaka
+              );
+            }}
+            aria-pressed={deliveryArea === "outside"}
+            className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+              deliveryArea === "outside"
+                ? "border-emerald-400 bg-emerald-50"
+                : "border-gray-200 bg-white hover:border-emerald-200 hover:bg-gray-50"
+            }`}
+          >
+            <div>
+              <p
+                className={`text-sm font-bold ${
+                  deliveryArea === "outside"
+                    ? "text-emerald-700"
+                    : "text-gray-800"
+                }`}
+              >
+                ঢাকার বাইরে
+              </p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                ৳{Number(
+                  product.deliveryOutsideDhaka
+                ).toLocaleString("en-US")} ডেলিভারি চার্জ
+              </p>
+            </div>
 
-      <div className="flex gap-2">
+            {deliveryArea === "outside" && (
+              <span
+                aria-hidden="true"
+                className="text-xl font-bold text-emerald-600"
+              >
+                ✓
+              </span>
+            )}
+          </button>
 
-        <input
-          type="text"
-          value={couponCode}
-          onChange={(e) => {
-            setCouponCode(
-              e.target.value
-            );
-
-            if (
-              discount > 0
-            ) {
-              setDiscount(0);
-              setCouponMessage("");
-            }
-          }}
-          placeholder="কুপন কোড"
-          className="min-w-0 flex-1 rounded-xl border border-gray-300 px-3 py-2.5 text-sm uppercase outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-        />
-
-        <button
-          type="button"
-          onClick={() =>
-            applyCoupon()
-          }
-          disabled={
-            isApplyingCoupon ||
-            isSubmitting
-          }
-          className="shrink-0 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-teal-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isApplyingCoupon
-            ? "Checking..."
-            : "Apply"}
-        </button>
-
+        </div>
       </div>
 
-      {/* Coupon Message */}
 
-      {couponMessage && (
-        <div
-          className={`-mt-1 px-1 text-xs font-medium ${
-            couponMessage.startsWith(
-              "✅"
-            )
-              ? "text-green-600"
-              : couponMessage.startsWith(
-                  "কুপন যাচাই"
-                )
-              ? "text-gray-500"
-              : "text-red-600"
-          }`}
-        >
-          {couponMessage}
-        </div>
-      )}
-
-      {/* Order Summary */}
+      {/* =====================================================
+          ORDER SUMMARY
+          Kept near the bottom, directly above the order button.
+          ===================================================== */}
 
       <div className="space-y-2 rounded-xl border border-gray-300 px-3.5 py-3.5">
 
@@ -1228,6 +1273,7 @@ export default function OrderForm({
 
       </div>
 
+
       {/* Order Button */}
 
       <Button
@@ -1235,6 +1281,7 @@ export default function OrderForm({
         onClick={
           handleOrder
         }
+        className="text-base sm:text-lg"
         disabled={
           loadingStock ||
           isSubmitting ||

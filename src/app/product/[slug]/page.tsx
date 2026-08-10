@@ -106,9 +106,12 @@ galleryImage4:
   name={formattedProduct.name}
 />
 
-          <ProductCheckout
-            product={formattedProduct}
-          />
+          <div className="space-y-3">
+
+            <ProductCheckout
+              product={formattedProduct}
+            />
+          </div>
 
         </div>
 

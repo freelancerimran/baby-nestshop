@@ -661,15 +661,64 @@ export async function POST(
 
     /*
     ========================================================
-    HASH PHONE FOR FACEBOOK
+    FACEBOOK BROWSER IDENTIFIERS
+    ========================================================
+
+    When the browser has Meta's first-party cookies available,
+    pass them to Conversions API as additional matching data.
+
+    _fbp = browser identifier
+    _fbc = click identifier (when available)
     ========================================================
     */
 
-    const normalizedPhone =
+    const fbp =
+      request.cookies.get(
+        "_fbp"
+      )?.value || "";
+
+    const fbc =
+      request.cookies.get(
+        "_fbc"
+      )?.value || "";
+
+
+    /*
+    ========================================================
+    HASH PHONE FOR FACEBOOK
+    ========================================================
+
+    Bangladesh phone numbers are normalized to country-code
+    format before SHA-256 hashing.
+
+    Example:
+
+    017XXXXXXXX
+        ↓
+    88017XXXXXXXX
+        ↓
+    SHA-256
+    ========================================================
+    */
+
+    const phoneDigits =
       phone.replace(
         /\D/g,
         ""
       );
+
+
+    let normalizedPhone =
+      phoneDigits;
+
+
+    if (
+      phoneDigits.startsWith("01") &&
+      phoneDigits.length === 11
+    ) {
+      normalizedPhone =
+        `88${phoneDigits}`;
+    }
 
 
     const hashedPhone =
@@ -684,6 +733,26 @@ export async function POST(
           "hex"
         );
 
+
+    /*
+    ========================================================
+    EVENT SOURCE URL
+    ========================================================
+
+    Prefer the actual Quick Order referrer.
+
+    This gives Meta the real page that generated the
+    conversion instead of the site homepage.
+    ========================================================
+    */
+
+    const eventSourceUrl =
+      request.headers.get(
+        "referer"
+      ) ||
+      `${new URL(
+        request.url
+      ).origin}/quick-order`;
 
     /*
     ========================================================
@@ -725,7 +794,7 @@ export async function POST(
                         "website",
 
                       event_source_url:
-                        "https://www.baby-nestshop.com",
+                        eventSourceUrl,
 
                       /*
                       ----------------------------------------
@@ -750,6 +819,18 @@ export async function POST(
 
                         client_user_agent:
                           userAgent,
+
+                        ...(fbp
+                          ? {
+                              fbp,
+                            }
+                          : {}),
+
+                        ...(fbc
+                          ? {
+                              fbc,
+                            }
+                          : {}),
                       },
 
                       custom_data: {
@@ -764,6 +845,21 @@ export async function POST(
 
                         content_ids:
                           productIds,
+
+                        contents:
+                          items.map(
+                            (item) => ({
+                              id:
+                                String(
+                                  item.productId
+                                ),
+
+                              quantity:
+                                Number(
+                                  item.quantity
+                                ),
+                            })
+                          ),
 
                         content_type:
                           "product",
