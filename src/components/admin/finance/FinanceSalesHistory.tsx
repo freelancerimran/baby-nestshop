@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -88,6 +89,80 @@ type FinanceSalesResponse = {
 
 /*
 ==========================================
+ORDER GROUP
+==========================================
+
+One order can contain multiple Finance
+allocation rows because of FIFO investment
+allocation.
+
+We merge those rows into ONE order row.
+==========================================
+*/
+
+type OrderProduct = {
+  productId:
+    | number
+    | string
+    | null;
+
+  productName: string;
+
+  quantity: number;
+
+  revenue: number;
+
+  costOfGoods: number;
+
+  extraCost: number;
+
+  landedCost: number;
+
+  profit: number;
+};
+
+type OrderInvestment = {
+  investmentCode: string;
+  investmentName: string;
+  quantity: number;
+};
+
+type OrderGroup = {
+  orderId: string;
+
+  totalQuantity: number;
+
+  totalRevenue: number;
+
+  totalProductCost: number;
+
+  totalExtraCost: number;
+
+  totalLandedCost: number;
+
+  totalProfit: number;
+
+  allocationCount: number;
+
+  processedAt:
+    | string
+    | null;
+
+  products: OrderProduct[];
+
+  investments: OrderInvestment[];
+};
+
+/*
+==========================================
+PAGINATION
+==========================================
+*/
+
+const ORDERS_PER_PAGE = 30;
+
+/*
+==========================================
 EMPTY SUMMARY
 ==========================================
 */
@@ -168,6 +243,306 @@ function formatDate(
 
 /*
 ==========================================
+BUILD ORDER GROUPS
+==========================================
+
+Important:
+
+The API may return multiple rows for the
+same order because FIFO can allocate one
+order across multiple investment batches.
+
+Example:
+
+ORDER-001
+  Allocation 1 → Investment A → 3 pcs
+  Allocation 2 → Investment B → 2 pcs
+
+This function converts them into:
+
+ORDER-001 → 5 pcs
+==========================================
+*/
+
+function buildOrderGroups(
+  sales: FinanceSale[]
+): OrderGroup[] {
+  const map =
+    new Map<
+      string,
+      OrderGroup
+    >();
+
+  for (
+    const sale of sales
+  ) {
+    const orderId =
+      String(
+        sale.orderId || ""
+      ).trim();
+
+    if (!orderId) {
+      continue;
+    }
+
+    let order =
+      map.get(orderId);
+
+    if (!order) {
+      order = {
+        orderId,
+
+        totalQuantity: 0,
+
+        totalRevenue: 0,
+
+        totalProductCost: 0,
+
+        totalExtraCost: 0,
+
+        totalLandedCost: 0,
+
+        totalProfit: 0,
+
+        allocationCount: 0,
+
+        processedAt:
+          sale.createdAt ||
+          null,
+
+        products: [],
+
+        investments: [],
+      };
+
+      map.set(
+        orderId,
+        order
+      );
+    }
+
+    /*
+    ======================================
+    ORDER TOTALS
+    ======================================
+    */
+
+    order.totalQuantity +=
+      Number(
+        sale.quantity || 0
+      );
+
+    order.totalRevenue +=
+      Number(
+        sale.productRevenue ||
+          0
+      );
+
+    order.totalProductCost +=
+      Number(
+        sale.costOfGoods ||
+          0
+      );
+
+    order.totalExtraCost +=
+      Number(
+        sale.allocatedExtraCost ||
+          0
+      );
+
+    order.totalLandedCost +=
+      Number(
+        sale.landedCost ||
+          0
+      );
+
+    order.totalProfit +=
+      Number(
+        sale.grossProfit ||
+          0
+      );
+
+    order.allocationCount +=
+      1;
+
+    /*
+    ======================================
+    LATEST PROCESS DATE
+    ======================================
+    */
+
+    if (
+      sale.createdAt &&
+      (
+        !order.processedAt ||
+        new Date(
+          sale.createdAt
+        ).getTime() >
+          new Date(
+            order.processedAt
+          ).getTime()
+      )
+    ) {
+      order.processedAt =
+        sale.createdAt;
+    }
+
+    /*
+    ======================================
+    PRODUCT GROUP
+    ======================================
+    */
+
+    const productKey =
+      `${String(
+        sale.productId ?? ""
+      )}::${sale.productName}`;
+
+    let product =
+      order.products.find(
+        (item) =>
+          `${String(
+            item.productId ?? ""
+          )}::${item.productName}` ===
+          productKey
+      );
+
+    if (!product) {
+      product = {
+        productId:
+          sale.productId,
+
+        productName:
+          sale.productName ||
+          "Unknown Product",
+
+        quantity: 0,
+
+        revenue: 0,
+
+        costOfGoods: 0,
+
+        extraCost: 0,
+
+        landedCost: 0,
+
+        profit: 0,
+      };
+
+      order.products.push(
+        product
+      );
+    }
+
+    product.quantity +=
+      Number(
+        sale.quantity || 0
+      );
+
+    product.revenue +=
+      Number(
+        sale.productRevenue ||
+          0
+      );
+
+    product.costOfGoods +=
+      Number(
+        sale.costOfGoods ||
+          0
+      );
+
+    product.extraCost +=
+      Number(
+        sale.allocatedExtraCost ||
+          0
+      );
+
+    product.landedCost +=
+      Number(
+        sale.landedCost ||
+          0
+      );
+
+    product.profit +=
+      Number(
+        sale.grossProfit ||
+          0
+      );
+
+    /*
+    ======================================
+    INVESTMENT GROUP
+    ======================================
+    */
+
+    const investmentKey =
+      `${sale.investmentCode}::${sale.investmentName}`;
+
+    let investment =
+      order.investments.find(
+        (item) =>
+          `${item.investmentCode}::${item.investmentName}` ===
+          investmentKey
+      );
+
+    if (!investment) {
+      investment = {
+        investmentCode:
+          sale.investmentCode ||
+          "",
+
+        investmentName:
+          sale.investmentName ||
+          "Unknown Investment",
+
+        quantity: 0,
+      };
+
+      order.investments.push(
+        investment
+      );
+    }
+
+    investment.quantity +=
+      Number(
+        sale.quantity || 0
+      );
+  }
+
+  /*
+  ======================================
+  SORT
+  ======================================
+
+  Latest processed order first.
+  ======================================
+  */
+
+  return Array.from(
+    map.values()
+  ).sort(
+    (a, b) => {
+      const aTime =
+        a.processedAt
+          ? new Date(
+              a.processedAt
+            ).getTime()
+          : 0;
+
+      const bTime =
+        b.processedAt
+          ? new Date(
+              b.processedAt
+            ).getTime()
+          : 0;
+
+      return bTime - aTime;
+    }
+  );
+}
+
+/*
+==========================================
 COMPONENT
 ==========================================
 */
@@ -196,6 +571,11 @@ export default function FinanceSalesHistory() {
     error,
     setError,
   ] = useState("");
+
+  const [
+    currentPage,
+    setCurrentPage,
+  ] = useState(1);
 
   /*
   ========================================
@@ -232,12 +612,15 @@ export default function FinanceSalesHistory() {
           );
         }
 
-        setSales(
+        const nextSales =
           Array.isArray(
             data.sales
           )
             ? data.sales
-            : []
+            : [];
+
+        setSales(
+          nextSales
         );
 
         setSummary({
@@ -297,6 +680,16 @@ export default function FinanceSalesHistory() {
                 0
             ),
         });
+
+        /*
+        ----------------------------------
+        RETURN TO FIRST PAGE AFTER REFRESH
+        ----------------------------------
+        */
+
+        setCurrentPage(
+          1
+        );
       } catch (err) {
         console.error(
           "FINANCE SALES HISTORY ERROR:",
@@ -313,6 +706,10 @@ export default function FinanceSalesHistory() {
 
         setSummary(
           emptySummary
+        );
+
+        setCurrentPage(
+          1
         );
       } finally {
         setLoading(false);
@@ -331,19 +728,202 @@ export default function FinanceSalesHistory() {
 
   /*
   ========================================
+  GROUP BY ORDER
+  ========================================
+  */
+
+  const orderGroups =
+    useMemo(
+      () =>
+        buildOrderGroups(
+          sales
+        ),
+      [sales]
+    );
+
+  /*
+  ========================================
+  PAGINATION
+  ========================================
+  */
+
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        orderGroups.length /
+          ORDERS_PER_PAGE
+      )
+    );
+
+  /*
+  ========================================
+  SAFETY
+  ========================================
+  */
+
+  useEffect(() => {
+    if (
+      currentPage >
+      totalPages
+    ) {
+      setCurrentPage(
+        totalPages
+      );
+    }
+  }, [
+    currentPage,
+    totalPages,
+  ]);
+
+  /*
+  ========================================
+  CURRENT ORDERS
+  ========================================
+  */
+
+  const currentOrders =
+    useMemo(() => {
+      const start =
+        (currentPage - 1) *
+        ORDERS_PER_PAGE;
+
+      const end =
+        start +
+        ORDERS_PER_PAGE;
+
+      return orderGroups.slice(
+        start,
+        end
+      );
+    }, [
+      orderGroups,
+      currentPage,
+    ]);
+
+  /*
+  ========================================
+  PAGE NUMBERS
+  ========================================
+  */
+
+  const pageNumbers =
+    useMemo(() => {
+      const pages: number[] =
+        [];
+
+      const maxVisible =
+        7;
+
+      if (
+        totalPages <=
+        maxVisible
+      ) {
+        for (
+          let i = 1;
+          i <= totalPages;
+          i++
+        ) {
+          pages.push(i);
+        }
+
+        return pages;
+      }
+
+      pages.push(1);
+
+      if (
+        currentPage > 4
+      ) {
+        pages.push(-1);
+      }
+
+      const start =
+        Math.max(
+          2,
+          currentPage - 1
+        );
+
+      const end =
+        Math.min(
+          totalPages - 1,
+          currentPage + 1
+        );
+
+      for (
+        let i = start;
+        i <= end;
+        i++
+      ) {
+        if (
+          !pages.includes(i)
+        ) {
+          pages.push(i);
+        }
+      }
+
+      if (
+        currentPage <
+        totalPages - 3
+      ) {
+        pages.push(-2);
+      }
+
+      if (
+        !pages.includes(
+          totalPages
+        )
+      ) {
+        pages.push(
+          totalPages
+        );
+      }
+
+      return pages;
+    }, [
+      currentPage,
+      totalPages,
+    ]);
+
+  /*
+  ========================================
+  PAGE RANGE
+  ========================================
+  */
+
+  const pageStart =
+    orderGroups.length === 0
+      ? 0
+      : (currentPage - 1) *
+          ORDERS_PER_PAGE +
+        1;
+
+  const pageEnd =
+    Math.min(
+      currentPage *
+        ORDERS_PER_PAGE,
+      orderGroups.length
+    );
+
+  /*
+  ========================================
   UI
   ========================================
   */
 
   return (
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+
       {/* ================================= */}
       {/* HEADER */}
       {/* ================================= */}
 
       <div className="border-b border-slate-100 p-6">
+
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+
           <div>
+
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">
               Delivered Sales Ledger
             </p>
@@ -353,10 +933,11 @@ export default function FinanceSalesHistory() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Confirmed delivered sales
-              allocated against investment
-              stock.
+              Confirmed delivered orders
+              grouped from Finance
+              allocations.
             </p>
+
           </div>
 
           <button
@@ -373,7 +954,9 @@ export default function FinanceSalesHistory() {
               ? "Refreshing..."
               : "↻ Refresh"}
           </button>
+
         </div>
+
       </div>
 
       {/* ================================= */}
@@ -381,6 +964,7 @@ export default function FinanceSalesHistory() {
       {/* ================================= */}
 
       <div className="grid gap-3 border-b border-slate-100 bg-slate-50/60 p-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+
         <SummaryItem
           label="Orders"
           value={summary.totalOrders.toLocaleString(
@@ -430,6 +1014,7 @@ export default function FinanceSalesHistory() {
           )}
           positive
         />
+
       </div>
 
       {/* ================================= */}
@@ -447,23 +1032,23 @@ export default function FinanceSalesHistory() {
       {/* ================================= */}
 
       {loading ? (
+
         <div className="p-12 text-center">
+
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
 
           <p className="mt-4 text-sm font-medium text-slate-500">
             Loading Finance
             transactions...
           </p>
+
         </div>
-      ) : sales.length ===
+
+      ) : orderGroups.length ===
         0 ? (
-        /*
-        ====================================
-        EMPTY STATE
-        ====================================
-        */
 
         <div className="px-6 py-14 text-center">
+
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-2xl">
             🧾
           </div>
@@ -480,189 +1065,441 @@ export default function FinanceSalesHistory() {
             is processed into the
             Finance ledger.
           </p>
+
         </div>
+
       ) : (
-        /*
-        ====================================
-        SALES TABLE
-        ====================================
-        */
 
-        <div className="overflow-x-auto">
-          <table className="min-w-[1450px] w-full">
-            <thead className="bg-slate-50">
-              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-5 py-4">
-                  Order
-                </th>
+        <>
+          {/* =============================== */}
+          {/* TABLE */}
+          {/* =============================== */}
 
-                <th className="px-5 py-4">
-                  Product
-                </th>
+          <div className="overflow-x-auto">
 
-                <th className="px-5 py-4">
-                  Investment
-                </th>
+            <table className="min-w-[1450px] w-full">
 
-                <th className="px-5 py-4 text-center">
-                  Qty
-                </th>
+              <thead className="bg-slate-50">
 
-                <th className="px-5 py-4 text-right">
-                  Revenue
-                </th>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
 
-                <th className="px-5 py-4 text-right">
-                  Product COGS
-                </th>
+                  <th className="px-5 py-4">
+                    Order
+                  </th>
 
-                <th className="px-5 py-4 text-right">
-                  Extra Cost
-                </th>
+                  <th className="px-5 py-4">
+                    Products
+                  </th>
 
-                <th className="px-5 py-4 text-right">
-                  Landed Cost
-                </th>
+                  <th className="px-5 py-4">
+                    Investment
+                  </th>
 
-                <th className="px-5 py-4 text-right">
-                  Profit
-                </th>
+                  <th className="px-5 py-4 text-center">
+                    Qty
+                  </th>
 
-                <th className="px-5 py-4">
-                  Processed
-                </th>
-              </tr>
-            </thead>
+                  <th className="px-5 py-4 text-right">
+                    Revenue
+                  </th>
 
-            <tbody>
-              {sales.map(
-                (sale) => (
-                  <tr
-                    key={
-                      sale.id
-                    }
-                    className="border-b border-slate-100 align-top transition hover:bg-slate-50/70"
-                  >
-                    {/* ORDER */}
+                  <th className="px-5 py-4 text-right">
+                    Product COGS
+                  </th>
 
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-slate-900">
-                        {sale.orderId ||
-                          "—"}
-                      </p>
+                  <th className="px-5 py-4 text-right">
+                    Extra Cost
+                  </th>
 
-                      <p className="mt-1 text-xs text-slate-400">
-                        Allocation #
-                        {sale.id}
-                      </p>
-                    </td>
+                  <th className="px-5 py-4 text-right">
+                    Landed Cost
+                  </th>
 
-                    {/* PRODUCT */}
+                  <th className="px-5 py-4 text-right">
+                    Profit
+                  </th>
 
-                    <td className="px-5 py-4">
-                      <p className="max-w-[260px] font-medium text-slate-900">
-                        {sale.productName ||
-                          "—"}
-                      </p>
+                  <th className="px-5 py-4">
+                    Processed
+                  </th>
 
-                      {sale.productId !=
-                        null && (
-                        <p className="mt-1 text-xs text-slate-400">
-                          Product ID:{" "}
+                </tr>
+
+              </thead>
+
+              <tbody>
+
+                {currentOrders.map(
+                  (order) => (
+
+                    <tr
+                      key={
+                        order.orderId
+                      }
+                      className="border-b border-slate-100 align-top transition hover:bg-slate-50/70"
+                    >
+
+                      {/* ================= */}
+                      {/* ORDER */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4">
+
+                        <p className="font-semibold text-slate-900">
                           {
-                            sale.productId
+                            order.orderId
                           }
                         </p>
-                      )}
-                    </td>
 
-                    {/* INVESTMENT */}
+                        <p className="mt-1 text-xs text-slate-400">
+                          {
+                            order.allocationCount
+                          }{" "}
+                          allocation
+                          {order.allocationCount !==
+                          1
+                            ? "s"
+                            : ""}
+                        </p>
 
-                    <td className="px-5 py-4">
-                      <p className="max-w-[220px] font-medium text-slate-900">
-                        {sale.investmentName ||
-                          "—"}
-                      </p>
+                      </td>
 
-                      <p className="mt-1 text-xs text-blue-600">
-                        {sale.investmentCode ||
-                          "No investment code"}
-                      </p>
-                    </td>
+                      {/* ================= */}
+                      {/* PRODUCTS */}
+                      {/* ================= */}
 
-                    {/* QUANTITY */}
+                      <td className="px-5 py-4">
 
-                    <td className="px-5 py-4 text-center">
-                      <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700">
-                        {
-                          sale.quantity
-                        }
-                      </span>
-                    </td>
+                        <div className="space-y-2">
 
-                    {/* REVENUE */}
+                          {order.products.map(
+                            (
+                              product,
+                              index
+                            ) => (
 
-                    <td className="px-5 py-4 text-right font-semibold text-slate-900">
-                      {formatMoney(
-                        sale.productRevenue
-                      )}
-                    </td>
+                              <div
+                                key={`${order.orderId}-${String(
+                                  product.productId ??
+                                    index
+                                )}-${index}`}
+                                className="min-w-[250px]"
+                              >
 
-                    {/* COGS */}
+                                <p className="font-medium text-slate-900">
+                                  {
+                                    product.productName
+                                  }
+                                </p>
 
-                    <td className="px-5 py-4 text-right text-slate-700">
-                      {formatMoney(
-                        sale.costOfGoods
-                      )}
-                    </td>
+                                <p className="mt-1 text-xs text-slate-400">
+                                  Qty:{" "}
+                                  {
+                                    product.quantity
+                                  }
+                                </p>
 
-                    {/* EXTRA COST */}
+                              </div>
 
-                    <td className="px-5 py-4 text-right text-slate-700">
-                      {formatMoney(
-                        sale.allocatedExtraCost
-                      )}
-                    </td>
+                            )
+                          )}
 
-                    {/* LANDED COST */}
+                        </div>
 
-                    <td className="px-5 py-4 text-right font-medium text-slate-900">
-                      {formatMoney(
-                        sale.landedCost
-                      )}
-                    </td>
+                      </td>
 
-                    {/* PROFIT */}
+                      {/* ================= */}
+                      {/* INVESTMENTS */}
+                      {/* ================= */}
 
-                    <td className="px-5 py-4 text-right">
-                      <span
-                        className={
-                          sale.grossProfit >=
-                          0
-                            ? "font-bold text-emerald-600"
-                            : "font-bold text-red-600"
-                        }
-                      >
+                      <td className="px-5 py-4">
+
+                        <div className="space-y-2">
+
+                          {order.investments.map(
+                            (
+                              investment,
+                              index
+                            ) => (
+
+                              <div
+                                key={`${order.orderId}-investment-${index}`}
+                                className="min-w-[220px]"
+                              >
+
+                                <p className="font-medium text-slate-900">
+                                  {
+                                    investment.investmentName
+                                  }
+                                </p>
+
+                                <p className="mt-1 text-xs text-blue-600">
+                                  {
+                                    investment.investmentCode ||
+                                    "No investment code"
+                                  }
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-400">
+                                  Qty:{" "}
+                                  {
+                                    investment.quantity
+                                  }
+                                </p>
+
+                              </div>
+
+                            )
+                          )}
+
+                        </div>
+
+                      </td>
+
+                      {/* ================= */}
+                      {/* QUANTITY */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-center">
+
+                        <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700">
+                          {
+                            order.totalQuantity
+                          }
+                        </span>
+
+                      </td>
+
+                      {/* ================= */}
+                      {/* REVENUE */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-right font-semibold text-slate-900">
+
                         {formatMoney(
-                          sale.grossProfit
+                          order.totalRevenue
                         )}
-                      </span>
-                    </td>
 
-                    {/* DATE */}
+                      </td>
 
-                    <td className="px-5 py-4 text-sm text-slate-500">
-                      {formatDate(
-                        sale.createdAt
-                      )}
-                    </td>
-                  </tr>
-                )
+                      {/* ================= */}
+                      {/* COGS */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-right text-slate-700">
+
+                        {formatMoney(
+                          order.totalProductCost
+                        )}
+
+                      </td>
+
+                      {/* ================= */}
+                      {/* EXTRA COST */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-right text-slate-700">
+
+                        {formatMoney(
+                          order.totalExtraCost
+                        )}
+
+                      </td>
+
+                      {/* ================= */}
+                      {/* LANDED COST */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-right font-medium text-slate-900">
+
+                        {formatMoney(
+                          order.totalLandedCost
+                        )}
+
+                      </td>
+
+                      {/* ================= */}
+                      {/* PROFIT */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-right">
+
+                        <span
+                          className={
+                            order.totalProfit >=
+                            0
+                              ? "font-bold text-emerald-600"
+                              : "font-bold text-red-600"
+                          }
+                        >
+                          {formatMoney(
+                            order.totalProfit
+                          )}
+                        </span>
+
+                      </td>
+
+                      {/* ================= */}
+                      {/* DATE */}
+                      {/* ================= */}
+
+                      <td className="px-5 py-4 text-sm text-slate-500">
+
+                        {formatDate(
+                          order.processedAt
+                        )}
+
+                      </td>
+
+                    </tr>
+
+                  )
+                )}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+          {/* =============================== */}
+          {/* PAGINATION */}
+          {/* =============================== */}
+
+          <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+
+            {/* RANGE */}
+
+            <div className="text-sm text-slate-500">
+
+              Showing{" "}
+
+              <span className="font-semibold text-slate-900">
+                {pageStart}
+              </span>
+
+              {" "}–{" "}
+
+              <span className="font-semibold text-slate-900">
+                {pageEnd}
+              </span>
+
+              {" "}of{" "}
+
+              <span className="font-semibold text-slate-900">
+                {
+                  orderGroups.length
+                }
+              </span>
+
+              {" "}orders
+
+            </div>
+
+            {/* CONTROLS */}
+
+            <div className="flex flex-wrap items-center gap-2">
+
+              {/* PREVIOUS */}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage(
+                    (page) =>
+                      Math.max(
+                        1,
+                        page - 1
+                      )
+                  )
+                }
+                disabled={
+                  currentPage ===
+                    1 ||
+                  loading
+                }
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ← Previous
+              </button>
+
+              {/* PAGE NUMBERS */}
+
+              {pageNumbers.map(
+                (
+                  page,
+                  index
+                ) =>
+                  page < 0 ? (
+
+                    <span
+                      key={`ellipsis-${index}`}
+                      className="px-1 text-slate-400"
+                    >
+                      …
+                    </span>
+
+                  ) : (
+
+                    <button
+                      key={
+                        page
+                      }
+                      type="button"
+                      onClick={() =>
+                        setCurrentPage(
+                          page
+                        )
+                      }
+                      disabled={
+                        loading
+                      }
+                      className={`min-w-10 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                        currentPage ===
+                        page
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {
+                        page
+                      }
+                    </button>
+
+                  )
               )}
-            </tbody>
-          </table>
-        </div>
+
+              {/* NEXT */}
+
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage(
+                    (page) =>
+                      Math.min(
+                        totalPages,
+                        page + 1
+                      )
+                  )
+                }
+                disabled={
+                  currentPage ===
+                    totalPages ||
+                  loading
+                }
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next →
+              </button>
+
+            </div>
+
+          </div>
+
+        </>
+
       )}
+
     </section>
   );
 }
@@ -684,6 +1521,7 @@ function SummaryItem({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
+
       <p className="text-xs font-medium text-slate-500">
         {label}
       </p>
@@ -697,6 +1535,7 @@ function SummaryItem({
       >
         {value}
       </p>
+
     </div>
   );
 }

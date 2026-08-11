@@ -7,12 +7,219 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 /*
 ==========================================
+STEADFAST CURRENT BALANCE
+==========================================
+
+Steadfast is the source of truth for the
+actual courier account balance.
+
+IMPORTANT:
+
+This is separate from:
+
+- Product Revenue
+- COGS
+- Landed Cost
+- Gross Profit
+- Investment
+
+The Steadfast balance is the actual amount
+currently available in the courier account.
+==========================================
+*/
+
+async function getSteadfastBalance() {
+  const apiKey =
+    process.env.STEADFAST_API_KEY;
+
+  const secretKey =
+    process.env.STEADFAST_SECRET_KEY;
+
+  /*
+  ========================================
+  CREDENTIAL VALIDATION
+  ========================================
+  */
+
+  if (!apiKey || !secretKey) {
+    console.error(
+      "STEADFAST BALANCE ERROR: Missing API credentials."
+    );
+
+    return {
+      success: false,
+      balance: null,
+      error:
+        "Steadfast API credentials are not configured.",
+    };
+  }
+
+  /*
+  ========================================
+  REQUEST
+  ========================================
+  */
+
+  try {
+    const response =
+      await fetch(
+        "https://portal.packzy.com/api/v1/get_balance",
+        {
+          method: "GET",
+
+          headers: {
+            "Api-Key": apiKey,
+            "Secret-Key": secretKey,
+            "Content-Type":
+              "application/json",
+          },
+
+          /*
+          ----------------------------------------
+          Do not use stale cached balance.
+
+          Finance should always request the
+          current Steadfast balance.
+          ----------------------------------------
+          */
+
+          cache: "no-store",
+        }
+      );
+
+    const data =
+      await response.json();
+
+    /*
+    ========================================
+    API ERROR
+    ========================================
+    */
+
+    if (
+      !response.ok ||
+      data?.status !== 200
+    ) {
+      console.error(
+        "STEADFAST BALANCE API ERROR:",
+        {
+          status:
+            response.status,
+
+          data,
+        }
+      );
+
+      return {
+        success: false,
+        balance: null,
+        error:
+          data?.message ||
+          "Unable to fetch Steadfast balance.",
+      };
+    }
+
+    /*
+    ========================================
+    BALANCE
+    ========================================
+    */
+
+    const balance =
+      Number(
+        data?.current_balance
+      );
+
+    if (
+      !Number.isFinite(
+        balance
+      )
+    ) {
+      console.error(
+        "STEADFAST BALANCE INVALID RESPONSE:",
+        data
+      );
+
+      return {
+        success: false,
+        balance: null,
+        error:
+          "Invalid balance returned by Steadfast.",
+      };
+    }
+
+    /*
+    ========================================
+    SUCCESS
+    ========================================
+    */
+
+    return {
+      success: true,
+
+      balance,
+
+      fetchedAt:
+        new Date().toISOString(),
+
+      error: null,
+    };
+  } catch (error) {
+    console.error(
+      "STEADFAST BALANCE REQUEST FAILED:",
+      error
+    );
+
+    /*
+    ----------------------------------------
+    IMPORTANT:
+
+    Steadfast failure must NOT break the
+    existing Finance page.
+
+    Existing Finance calculations can still
+    be displayed.
+    ----------------------------------------
+    */
+
+    return {
+      success: false,
+
+      balance: null,
+
+      error:
+        error instanceof Error
+          ? error.message
+          : String(error),
+    };
+  }
+}
+
+
+/*
+==========================================
 GET ALL INVESTMENTS + FINANCE SUMMARY
 ==========================================
 */
 
 export async function GET() {
   try {
+    /*
+    ========================================
+    0. LOAD LIVE STEADFAST BALANCE
+    ========================================
+
+    This is independent from the Finance
+    ledger.
+
+    Steadfast is the source of truth for
+    current courier account balance.
+    ========================================
+    */
+
+    const steadfastBalance =
+      await getSteadfastBalance();
+
     /*
     ========================================
     1. LOAD INVESTMENTS
@@ -47,6 +254,20 @@ export async function GET() {
           investments: [],
           error:
             batchesError.message,
+
+          /*
+          ----------------------------------------
+          Still expose Steadfast result if it was
+          successfully fetched before the DB error.
+          ----------------------------------------
+          */
+
+          steadfastBalance:
+            steadfastBalance.balance,
+
+          steadfastBalanceFetchedAt:
+            steadfastBalance.fetchedAt ||
+            null,
         },
         {
           status: 500,
@@ -103,6 +324,13 @@ export async function GET() {
           investments: [],
           error:
             financeSalesError.message,
+
+          steadfastBalance:
+            steadfastBalance.balance,
+
+          steadfastBalanceFetchedAt:
+            steadfastBalance.fetchedAt ||
+            null,
         },
         {
           status: 500,
@@ -723,6 +951,32 @@ export async function GET() {
     return NextResponse.json({
       success: true,
 
+      /*
+      ========================================
+      LIVE STEADFAST BALANCE
+      ========================================
+      */
+
+      steadfastBalance:
+        steadfastBalance.balance,
+
+      steadfastBalanceFetchedAt:
+        steadfastBalance.fetchedAt ||
+        null,
+
+      steadfastBalanceAvailable:
+        steadfastBalance.success,
+
+      /*
+      If Steadfast API failed, this tells
+      the frontend why without breaking the
+      Finance data.
+      */
+
+      steadfastBalanceError:
+        steadfastBalance.error ||
+        null,
+
       summary: {
         /*
         ================================
@@ -836,6 +1090,12 @@ export async function GET() {
           error instanceof Error
             ? error.message
             : String(error),
+
+        steadfastBalance:
+          null,
+
+        steadfastBalanceAvailable:
+          false,
       },
       {
         status: 500,
@@ -843,6 +1103,7 @@ export async function GET() {
     );
   }
 }
+
 
 /*
 ==========================================

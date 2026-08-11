@@ -120,6 +120,48 @@ export default function FinancePage() {
 
   /*
   ==========================================
+  STEADFAST LIVE BALANCE
+  ==========================================
+
+  These values come directly from:
+
+  /api/admin/finance/investments
+
+  The API fetches the real current
+  Steadfast account balance.
+  ==========================================
+  */
+
+  const [
+    steadfastBalance,
+    setSteadfastBalance,
+  ] = useState<number | null>(
+    null
+  );
+
+  const [
+    steadfastBalanceAvailable,
+    setSteadfastBalanceAvailable,
+  ] = useState<
+    boolean | undefined
+  >(undefined);
+
+  const [
+    steadfastBalanceFetchedAt,
+    setSteadfastBalanceFetchedAt,
+  ] = useState<
+    string | null
+  >(null);
+
+  const [
+    steadfastBalanceError,
+    setSteadfastBalanceError,
+  ] = useState<
+    string | null
+  >(null);
+
+  /*
+  ==========================================
   CREATE INVESTMENT MODAL
   ==========================================
   */
@@ -211,6 +253,46 @@ export default function FinancePage() {
               "Failed to load finance data."
           );
         }
+
+        /*
+        ====================================
+        STEADFAST BALANCE
+        ====================================
+
+        IMPORTANT:
+
+        This is NOT calculated from
+        Finance sales.
+
+        It comes directly from the
+        Steadfast API.
+        ====================================
+        */
+
+        setSteadfastBalance(
+          data?.steadfastBalance !==
+            undefined &&
+            data?.steadfastBalance !==
+              null
+            ? Number(
+                data.steadfastBalance
+              )
+            : null
+        );
+
+        setSteadfastBalanceAvailable(
+          data?.steadfastBalanceAvailable
+        );
+
+        setSteadfastBalanceFetchedAt(
+          data?.steadfastBalanceFetchedAt ||
+            null
+        );
+
+        setSteadfastBalanceError(
+          data?.steadfastBalanceError ||
+            null
+        );
 
         /*
         ====================================
@@ -413,6 +495,30 @@ export default function FinancePage() {
         );
 
         setInvestments([]);
+
+        /*
+        ====================================
+        RESET STEADFAST DATA
+        ====================================
+        */
+
+        setSteadfastBalance(
+          null
+        );
+
+        setSteadfastBalanceAvailable(
+          false
+        );
+
+        setSteadfastBalanceFetchedAt(
+          null
+        );
+
+        setSteadfastBalanceError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load Steadfast balance."
+        );
       } finally {
         setLoading(false);
       }
@@ -460,6 +566,9 @@ export default function FinancePage() {
 
       /*
       Reload complete Finance data.
+
+      This also refreshes the
+      Steadfast balance.
       */
 
       await loadFinanceData();
@@ -645,12 +754,31 @@ export default function FinancePage() {
         */
 
         <div className="space-y-8">
+
           {/* ============================= */}
           {/* FINANCE OVERVIEW */}
           {/* ============================= */}
 
           <FinanceOverview
-            summary={summary}
+            summary={
+              summary
+            }
+
+            steadfastBalance={
+              steadfastBalance
+            }
+
+            steadfastBalanceAvailable={
+              steadfastBalanceAvailable
+            }
+
+            steadfastBalanceFetchedAt={
+              steadfastBalanceFetchedAt
+            }
+
+            steadfastBalanceError={
+              steadfastBalanceError
+            }
           />
 
           {/* ============================= */}
@@ -671,6 +799,7 @@ export default function FinancePage() {
           {/* ============================= */}
 
           <FinanceSalesHistory />
+
         </div>
       )}
 
@@ -727,6 +856,7 @@ export default function FinancePage() {
           handleInvestmentUpdated
         }
       />
+
     </div>
   );
 }
