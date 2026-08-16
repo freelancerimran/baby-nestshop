@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/ui/Button";
 import { Product } from "@/types/product";
 import { districts } from "@/data/districts";
+
 type OrderFormProps = {
   product: Product;
 };
@@ -805,7 +806,10 @@ export default function OrderForm({
   */
 
   return (
-    <div className="space-y-3.5">
+    <div
+      id="product-order-form"
+      className="scroll-mt-24 space-y-3.5"
+    >
 
       {/* =====================================================
           COUPON MODULE
@@ -1126,7 +1130,9 @@ export default function OrderForm({
                 product.deliveryInsideDhaka
               );
             }}
-            aria-pressed={deliveryArea === "dhaka"}
+            aria-pressed={
+              deliveryArea === "dhaka"
+            }
             className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
               deliveryArea === "dhaka"
                 ? "border-emerald-400 bg-emerald-50"
@@ -1143,14 +1149,18 @@ export default function OrderForm({
               >
                 ঢাকার ভিতরে
               </p>
+
               <p className="mt-0.5 text-xs text-gray-500">
                 ৳{Number(
                   product.deliveryInsideDhaka
-                ).toLocaleString("en-US")} ডেলিভারি চার্জ
+                ).toLocaleString(
+                  "en-US"
+                )} ডেলিভারি চার্জ
               </p>
             </div>
 
-            {deliveryArea === "dhaka" && (
+            {deliveryArea ===
+              "dhaka" && (
               <span
                 aria-hidden="true"
                 className="text-xl font-bold text-emerald-600"
@@ -1160,15 +1170,22 @@ export default function OrderForm({
             )}
           </button>
 
+
           <button
             type="button"
             onClick={() => {
-              setDeliveryArea("outside");
+              setDeliveryArea(
+                "outside"
+              );
+
               setDeliveryCharge(
                 product.deliveryOutsideDhaka
               );
             }}
-            aria-pressed={deliveryArea === "outside"}
+            aria-pressed={
+              deliveryArea ===
+              "outside"
+            }
             className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
               deliveryArea === "outside"
                 ? "border-emerald-400 bg-emerald-50"
@@ -1178,21 +1195,26 @@ export default function OrderForm({
             <div>
               <p
                 className={`text-sm font-bold ${
-                  deliveryArea === "outside"
+                  deliveryArea ===
+                  "outside"
                     ? "text-emerald-700"
                     : "text-gray-800"
                 }`}
               >
                 ঢাকার বাইরে
               </p>
+
               <p className="mt-0.5 text-xs text-gray-500">
                 ৳{Number(
                   product.deliveryOutsideDhaka
-                ).toLocaleString("en-US")} ডেলিভারি চার্জ
+                ).toLocaleString(
+                  "en-US"
+                )} ডেলিভারি চার্জ
               </p>
             </div>
 
-            {deliveryArea === "outside" && (
+            {deliveryArea ===
+              "outside" && (
               <span
                 aria-hidden="true"
                 className="text-xl font-bold text-emerald-600"
