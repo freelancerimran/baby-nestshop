@@ -537,35 +537,90 @@ export default function OrdersTable({
 
   /*
   ========================================
-  TOTAL SALES
+  ORDER FINANCIAL SUMMARY
+  ========================================
+
+  Product Sales = product value only
+  Delivery = customer delivery charge
+  Discount = discount given
+  Total = final customer payable amount
+
+  Cancelled orders are excluded from
+  financial/unit sales metrics.
   ========================================
   */
 
-  const totalSales =
-    filteredOrders.reduce(
-      (
-        sum,
-        order
-      ) => {
-        const isCancelled =
-          order.status
-            ?.trim()
-            .toLowerCase() ===
-          "cancelled";
+  const orderSummary = useMemo(() => {
+    let productSales = 0;
+    let deliveryCharges = 0;
+    let discounts = 0;
+    let totalSales = 0;
+    let totalUnits = 0;
+    let salesOrders = 0;
 
-        if (isCancelled) {
-          return sum;
-        }
+    filteredOrders.forEach((order) => {
+      const isCancelled =
+        order.status
+          ?.trim()
+          .toLowerCase() === "cancelled";
 
-        return (
-          sum +
-          Number(
-            order.total ?? 0
-          )
-        );
-      },
-      0
-    );
+      if (isCancelled) {
+        return;
+      }
+
+      const items = order.items || [];
+
+      const productValue =
+        items.length > 0
+          ? items.reduce(
+              (sum, item) =>
+                sum +
+                Number(item.lineTotal ?? 0),
+              0
+            )
+          : Number(
+              order.productPrice ?? 0
+            ) *
+            Number(
+              order.quantity ?? 0
+            );
+
+      const deliveryCharge = Number(
+        order.deliveryCharge ?? 0
+      );
+
+      const discount = Number(
+        order.discount ?? 0
+      );
+
+      const finalTotal = Number(
+        order.total ?? 0
+      );
+
+      productSales += productValue;
+      deliveryCharges += deliveryCharge;
+      discounts += discount;
+      totalSales += finalTotal;
+      totalUnits +=
+  order.items && order.items.length > 0
+    ? order.items.reduce(
+        (sum, item) =>
+          sum + Number(item.quantity || 0),
+        0
+      )
+    : Number(order.quantity || 0);
+      salesOrders += 1;
+    });
+
+    return {
+      productSales,
+      deliveryCharges,
+      discounts,
+      totalSales,
+      totalUnits,
+      salesOrders,
+    };
+  }, [filteredOrders]);
 
   /*
   ========================================
@@ -1168,44 +1223,64 @@ export default function OrdersTable({
 
         {/* SUMMARY */}
 
-        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-gray-100 pt-4 text-sm">
-          <div className="font-semibold text-gray-800">
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-gray-100 pt-3 text-xs sm:text-sm">
+          <div className="whitespace-nowrap font-semibold text-gray-800">
             Orders:{" "}
-            <span className="text-gray-600">
-              {
-                filteredOrders.length
-              }
+            <span className="font-medium text-gray-600">
+              {filteredOrders.length}
             </span>
           </div>
 
-          <div className="font-semibold text-gray-800">
-            Sales:{" "}
-            <span className="text-gray-600">
-              ৳
-              {totalSales.toLocaleString()}
+          <div className="whitespace-nowrap font-semibold text-gray-800">
+            Units:{" "}
+            <span className="font-medium text-gray-600">
+              {orderSummary.totalUnits}
             </span>
           </div>
 
-          <div className="font-semibold text-gray-800">
+          <div className="whitespace-nowrap font-semibold text-gray-800">
+            Product:{" "}
+            <span className="font-medium text-gray-600">
+              ৳{orderSummary.productSales.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="whitespace-nowrap font-semibold text-gray-800">
+            Delivery:{" "}
+            <span className="font-medium text-gray-600">
+              ৳{orderSummary.deliveryCharges.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="whitespace-nowrap font-semibold text-gray-800">
+            Discount:{" "}
+            <span className="font-medium text-red-600">
+              -৳{orderSummary.discounts.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="whitespace-nowrap font-semibold text-gray-800">
+            Total:{" "}
+            <span className="font-semibold text-gray-900">
+              ৳{orderSummary.totalSales.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="whitespace-nowrap font-semibold text-gray-800">
             Selected:{" "}
-            <span className="text-blue-600">
-              {
-                selectedOrders.length
-              }
+            <span className="font-medium text-blue-600">
+              {selectedOrders.length}
             </span>
           </div>
 
-          <div className="ml-auto text-gray-500">
+          <div className="ml-auto whitespace-nowrap text-gray-500">
             Showing{" "}
             <span className="font-medium text-gray-700">
-              {startItem}–
-              {endItem}
+              {startItem}–{endItem}
             </span>{" "}
             of{" "}
             <span className="font-medium text-gray-700">
-              {
-                filteredOrders.length
-              }
+              {filteredOrders.length}
             </span>
           </div>
         </div>

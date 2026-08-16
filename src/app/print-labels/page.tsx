@@ -131,7 +131,7 @@ async function getOrders(ids: string[]) {
     (order) => {
       /*
       ============================================
-      PAYMENT
+      BASIC ORDER DATA
       ============================================
       */
 
@@ -146,7 +146,37 @@ async function getOrders(ids: string[]) {
         );
 
       /*
-      IMPORTANT:
+      ============================================
+      DELIVERY
+      ============================================
+      */
+
+      const deliveryCharge =
+        Number(
+          order.delivery_charge ?? 0
+        );
+
+      const deliveryArea =
+        order.delivery_area || "";
+
+      /*
+      ============================================
+      ORDER DATE
+      ============================================
+      */
+
+      const date =
+        order.order_date
+          ? String(
+              order.order_date
+            )
+          : "";
+
+      /*
+      ============================================
+      PAYMENT
+      ============================================
+      
       due_amount = 0 is valid.
       */
 
@@ -237,9 +267,20 @@ async function getOrders(ids: string[]) {
                       0
                   ),
 
+                /*
+                For legacy orders,
+                calculate product line total
+                from product price × quantity.
+                */
+
                 lineTotal:
                   Number(
-                    order.total ?? 0
+                    order.product_price ??
+                      0
+                  ) *
+                  Number(
+                    order.quantity ??
+                      1
                   ),
               },
             ];
@@ -251,20 +292,38 @@ async function getOrders(ids: string[]) {
       */
 
       return {
+        /*
+        ORDER
+        */
+
         orderId:
           order.order_id,
 
+        date,
+
+        /*
+        CUSTOMER
+        */
+
         customerName:
-          order.customer_name,
+          order.customer_name || "",
 
         phone:
-          order.phone,
+          order.phone || "",
 
         district:
           order.district || "",
 
         address:
           order.address || "",
+
+        /*
+        DELIVERY
+        */
+
+        deliveryArea,
+
+        deliveryCharge,
 
         /*
         LEGACY PRODUCT
@@ -277,6 +336,11 @@ async function getOrders(ids: string[]) {
         quantity:
           Number(
             order.quantity ?? 1
+          ),
+
+        productPrice:
+          Number(
+            order.product_price ?? 0
           ),
 
         /*
@@ -371,7 +435,9 @@ export default async function PrintLabelsPage({
 
   return (
     <>
-      {/* AUTO PRINT */}
+      {/* ==================================================
+          AUTO PRINT
+      ================================================== */}
 
       <script
         dangerouslySetInnerHTML={{
@@ -385,7 +451,9 @@ export default async function PrintLabelsPage({
         }}
       />
 
-      {/* LABELS */}
+      {/* ==================================================
+          LABELS
+      ================================================== */}
 
       <div
         style={{
@@ -396,14 +464,179 @@ export default async function PrintLabelsPage({
         }}
       >
         {selectedOrders.map(
-          (order) => (
-            <ShippingLabel
-              key={
-                order!.orderId
-              }
-              order={order!}
-            />
-          )
+          (order) => {
+            if (!order) {
+              return null;
+            }
+
+            return (
+              <ShippingLabel
+                key={
+                  order.orderId
+                }
+
+                /*
+                ------------------------------------------
+                ORDER
+                ------------------------------------------
+                */
+
+                orderId={
+                  order.orderId
+                }
+
+                date={
+                  order.date
+                }
+
+                /*
+                ------------------------------------------
+                CUSTOMER
+                ------------------------------------------
+                */
+
+                customerName={
+                  order.customerName
+                }
+
+                phone={
+                  order.phone
+                }
+
+                district={
+                  order.district
+                }
+
+                address={
+                  order.address
+                }
+
+                /*
+                ------------------------------------------
+                DELIVERY
+                ------------------------------------------
+                */
+
+                deliveryArea={
+                  order.deliveryArea
+                }
+
+                deliveryCharge={
+                  Number(
+                    order.deliveryCharge ??
+                      0
+                  )
+                }
+
+                /*
+                ------------------------------------------
+                PAYMENT
+                ------------------------------------------
+                */
+
+                total={
+                  Number(
+                    order.total ??
+                      0
+                  )
+                }
+
+                paidAmount={
+                  Number(
+                    order.paidAmount ??
+                      0
+                  )
+                }
+
+                dueAmount={
+                  Number(
+                    order.dueAmount ??
+                      0
+                  )
+                }
+
+                /*
+                ------------------------------------------
+                COURIER
+                ------------------------------------------
+                */
+
+                consignmentId={
+                  order.consignmentId
+                    ? String(
+                        order.consignmentId
+                      )
+                    : ""
+                }
+
+                /*
+                ------------------------------------------
+                PRODUCTS
+                ------------------------------------------
+                */
+
+                products={
+                  order.items &&
+                  order.items.length >
+                    0
+                    ? order.items.map(
+                        (item) => ({
+                          productName:
+                            item.productName ||
+                            "Product",
+
+                          quantity:
+                            Number(
+                              item.quantity ??
+                                0
+                            ),
+
+                          unitPrice:
+                            Number(
+                              item.unitPrice ??
+                                0
+                            ),
+
+                          lineTotal:
+                            Number(
+                              item.lineTotal ??
+                                0
+                            ),
+                        })
+                      )
+                    : [
+                        {
+                          productName:
+                            order.productName ||
+                            "Product",
+
+                          quantity:
+                            Number(
+                              order.quantity ??
+                                1
+                            ),
+
+                          unitPrice:
+                            Number(
+                              order.productPrice ??
+                                0
+                            ),
+
+                          lineTotal:
+                            Number(
+                              order.productPrice ??
+                                0
+                            ) *
+                            Number(
+                              order.quantity ??
+                                1
+                            ),
+                        },
+                      ]
+                }
+              />
+            );
+          }
         )}
       </div>
     </>
