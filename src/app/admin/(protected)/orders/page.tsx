@@ -84,13 +84,127 @@ async function getOrders() {
       itemsByOrderId.set(orderId, existingItems);
     });
 
-    return (ordersData || []).map((order) => {
-      const items = itemsByOrderId.get(order.order_id) || [];
+    /*
+    ========================================
+    NORMALIZE LEGACY SINGLE-PRODUCT ORDERS
+    ========================================
 
-      const totalItems = items.reduce(
-        (sum, item) => sum + Number(item.quantity || 0),
+    Older orders may not have a row in
+    `order_items`. Those orders still keep
+    their product data in `orders`.
+
+    We convert that legacy row into the same
+    `items[]` shape used by new orders so:
+
+    - Orders table shows the product correctly
+    - Quantity is correct
+    - Edit Order receives the product
+    - Old orders and new orders behave the same
+    ========================================
+    */
+
+    const deriveLegacyQuantity = (order: any) => {
+      const storedQuantity = Number(order.quantity ?? 0);
+
+      if (storedQuantity > 0) {
+        return Math.max(1, Math.round(storedQuantity));
+      }
+
+      const productPrice = Number(order.product_price ?? 0);
+      const total = Number(order.total ?? order.grand_total ?? 0);
+      const deliveryCharge = Number(order.delivery_charge ?? 0);
+      const discount = Number(order.discount ?? 0);
+
+      /*
+      For legacy orders the final total normally follows:
+
+        total = product price × quantity
+              + delivery
+              - discount
+
+      This lets us recover the real quantity even
+      when the old `orders.quantity` value is 0.
+      */
+      if (productPrice > 0) {
+        const derived =
+          (total - deliveryCharge + discount) /
+          productPrice;
+
+        if (
+          Number.isFinite(derived) &&
+          derived > 0 &&
+          Math.abs(derived - Math.round(derived)) < 0.01
+        ) {
+          return Math.max(1, Math.round(derived));
+        }
+      }
+
+      /*
+      A legacy single-product order without any
+      usable quantity value represents at least
+      one product.
+      */
+      return 1;
+    };
+
+    return (ordersData || []).map((order) => {
+      const orderId = String(order.order_id || "").trim();
+
+      const legacyProductId = String(
+        order.product_id || ""
+      ).trim();
+
+      const storedItems = itemsByOrderId.get(orderId) || [];
+
+      const normalizedItems =
+        storedItems.length > 0
+          ? storedItems.map((item) => ({
+              ...item,
+              quantity: Math.max(
+                1,
+                Number(item.quantity || 0)
+              ),
+              unitPrice: Number(item.unitPrice || 0),
+              lineTotal:
+                Number(item.lineTotal || 0) ||
+                Math.max(
+                  1,
+                  Number(item.quantity || 0)
+                ) *
+                  Number(item.unitPrice || 0),
+            }))
+          : legacyProductId
+            ? [
+                {
+                  id: undefined,
+                  productId: legacyProductId,
+                  productName:
+                    order.product_name || "Product",
+                  quantity: deriveLegacyQuantity(order),
+                  unitPrice: Number(
+                    order.product_price || 0
+                  ),
+                  lineTotal:
+                    Number(order.product_price || 0) *
+                    deriveLegacyQuantity(order),
+                  image:
+                    productImages.get(
+                      legacyProductId
+                    ) || "",
+                },
+              ]
+            : [];
+
+      const totalItems = normalizedItems.reduce(
+        (sum, item) =>
+          sum + Number(item.quantity || 0),
         0
       );
+
+      const fallbackQuantity =
+        normalizedItems.length > 0
+          ? totalItems
+          : deriveLegacyQuantity(order);
 
       const total = Number(order.total || 0);
       const paidAmount = Number(order.paid_amount || 0);
@@ -113,21 +227,24 @@ async function getOrders() {
         }
       }
 
-      const legacyProductId = String(order.product_id || "").trim();
-
       return {
-        orderId: order.order_id,
+        orderId,
         date: order.order_date,
 
-        productId: order.product_id,
-        productName: order.product_name,
-        productSlug: order.product_slug,
-        productImage: productImages.get(legacyProductId) || "",
+        productId: legacyProductId,
+        productName: order.product_name || "Product",
+        productSlug: order.product_slug || "",
+        productImage:
+          productImages.get(legacyProductId) || "",
 
-        quantity: Number(order.quantity || 0),
-        productPrice: Number(order.product_price || 0),
+        quantity: Number(
+          order.quantity || fallbackQuantity
+        ),
+        productPrice: Number(
+          order.product_price || 0
+        ),
 
-        items,
+        items: normalizedItems,
         totalItems,
         orderType: order.order_type || "",
 
@@ -137,12 +254,18 @@ async function getOrders() {
         deliveryArea: order.delivery_area,
         address: order.address,
 
-        deliveryCharge: Number(order.delivery_charge || 0),
+        deliveryCharge: Number(
+          order.delivery_charge || 0
+        ),
         discount: Number(order.discount || 0),
         couponCode: order.coupon_code || "",
 
-        subtotal: Number(order.subtotal ?? total),
-        grandTotal: Number(order.grand_total ?? total),
+        subtotal: Number(
+          order.subtotal ?? total
+        ),
+        grandTotal: Number(
+          order.grand_total ?? total
+        ),
         total,
 
         paidAmount,
@@ -151,10 +274,14 @@ async function getOrders() {
 
         status: order.status || "Pending",
 
-        trackingCode: order.tracking_code || "",
-        consignmentId: order.consignment_id || "",
-        courierStatus: order.courier_status || "",
-        lastStatusSync: order.last_status_sync || null,
+        trackingCode:
+          order.tracking_code || "",
+        consignmentId:
+          order.consignment_id || "",
+        courierStatus:
+          order.courier_status || "",
+        lastStatusSync:
+          order.last_status_sync || null,
       };
     });
   } catch (error) {

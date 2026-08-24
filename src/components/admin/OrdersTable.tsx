@@ -1019,36 +1019,123 @@ export default function OrdersTable({
   const getDisplayQuantity = (
     order: Order
   ) => {
-    if (
-      order.totalItems !==
-        undefined
-    ) {
-      return Number(
-        order.totalItems
-      );
-    }
-
+    /*
+    Always trust real item rows first.
+    This prevents a stale/zero legacy
+    `totalItems` value from hiding the
+    actual quantity.
+    */
     if (
       order.items &&
-      order.items.length >
-        0
+      order.items.length > 0
     ) {
-      return order.items.reduce(
-        (
-          sum,
-          item
-        ) =>
-          sum +
-          Number(
-            item.quantity || 0
-          ),
-        0
-      );
+      const itemQuantity =
+        order.items.reduce(
+          (sum, item) =>
+            sum +
+            Math.max(
+              1,
+              Number(
+                item.quantity || 0
+              )
+            ),
+          0
+        );
+
+      if (itemQuantity > 0) {
+        return itemQuantity;
+      }
     }
 
-    return Number(
+    const quantity = Number(
       order.quantity || 0
     );
+
+    if (quantity > 0) {
+      return quantity;
+    }
+
+    /*
+    Legacy single-product fallback.
+    The Orders page now normally supplies
+    a normalized item, but this keeps the
+    table safe if an old payload reaches
+    the component directly.
+    */
+    if (
+      order.productId ||
+      order.productName
+    ) {
+      return 1;
+    }
+
+    return 0;
+  };
+
+  /*
+  ========================================
+  PREPARE ORDER FOR EDIT
+  ========================================
+
+  The table normally receives normalized
+  `items[]`. This fallback also protects
+  against a legacy/partial payload so the
+  Edit Order form never opens with an empty
+  product list for a single-product order.
+  ========================================
+  */
+
+  const prepareOrderForEdit = (
+    order: Order
+  ): Order => {
+    if (
+      order.items &&
+      order.items.length > 0
+    ) {
+      return order;
+    }
+
+    if (
+      !order.productId &&
+      !order.productName
+    ) {
+      return order;
+    }
+
+    const quantity =
+      Number(order.quantity || 0) > 0
+        ? Number(order.quantity)
+        : 1;
+
+    const unitPrice = Number(
+      order.productPrice || 0
+    );
+
+    return {
+      ...order,
+      quantity,
+      totalItems: quantity,
+      items: [
+        {
+          id: undefined,
+          productId:
+            String(
+              order.productId || ""
+            ),
+          productName:
+            order.productName ||
+            "Product",
+          quantity,
+          unitPrice,
+          lineTotal:
+            unitPrice *
+            quantity,
+          image:
+            order.productImage ||
+            "",
+        },
+      ],
+    };
   };
 
   /*
@@ -1494,7 +1581,11 @@ export default function OrdersTable({
                           title="Edit Order"
                           onClick={() => {
                             setSelectedOrder(null);
-                            setEditingOrder(order);
+                            setEditingOrder(
+                              prepareOrderForEdit(
+                                order
+                              )
+                            );
                           }}
                           className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-600"
                         >

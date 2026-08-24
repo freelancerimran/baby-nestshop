@@ -18,6 +18,7 @@ import {
   Settings,
   BadgeDollarSign,
   TicketPercent,
+  CircleDollarSign,
 } from "lucide-react";
 
 const menuItems = [
@@ -52,25 +53,49 @@ const menuItems = [
     icon: BarChart3,
   },
 
-  // Finance & Investments
+  // ========================================
+  // FINANCE
+  // ========================================
+
   {
     name: "Finance",
     href: "/admin/finance",
     icon: WalletCards,
   },
 
-  // Coupons
+  // ========================================
+  // MONEY MANAGEMENT
+  // ========================================
+
+  {
+    name: "Money Management",
+    href: "/admin/money-management",
+    icon: CircleDollarSign,
+  },
+
+  // ========================================
+  // COUPONS
+  // ========================================
+
   {
     name: "Coupons",
     href: "/admin/coupons",
     icon: TicketPercent,
   },
 
+  // ========================================
+  // FACEBOOK PIXEL
+  // ========================================
+
   {
     name: "Facebook Pixel",
     href: "/admin/facebook-pixel",
     icon: BadgeDollarSign,
   },
+
+  // ========================================
+  // SETTINGS
+  // ========================================
 
   {
     name: "Settings",
@@ -86,34 +111,29 @@ export default function AdminMobileSidebar({
   open: boolean;
   onClose: () => void;
 }) {
-  const pathname =
-    usePathname();
+  const pathname = usePathname();
 
-  const router =
-    useRouter();
+  const router = useRouter();
 
   if (!open) {
     return null;
   }
 
+  // ========================================
+  // LOGOUT
+  // ========================================
+
   async function handleLogout() {
     try {
-      await fetch(
-        "/api/admin/logout",
-        {
-          method: "POST",
-        }
-      );
+      await fetch("/api/admin/logout", {
+        method: "POST",
+      });
 
-      router.push(
-        "/admin/login"
-      );
+      router.push("/admin/login");
 
       router.refresh();
     } catch (error) {
-      console.error(
-        error
-      );
+      console.error(error);
     }
   }
 
@@ -126,16 +146,14 @@ export default function AdminMobileSidebar({
 
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={
-          onClose
-        }
+        onClick={onClose}
       />
 
       {/* ========================================
           DRAWER
           ======================================== */}
 
-      <div className="absolute left-0 top-0 h-full w-72 bg-white shadow-xl">
+      <div className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-white shadow-xl">
 
         {/* ======================================
             HEADER
@@ -149,10 +167,8 @@ export default function AdminMobileSidebar({
 
           <button
             type="button"
-            onClick={
-              onClose
-            }
-            className="rounded-lg p-2 hover:bg-gray-100"
+            onClick={onClose}
+            className="rounded-lg p-2 transition hover:bg-gray-100"
             aria-label="Close menu"
           >
             <X size={24} />
@@ -168,63 +184,45 @@ export default function AdminMobileSidebar({
 
           <div className="space-y-2">
 
-            {menuItems.map(
-              (item) => {
-                const Icon =
-                  item.icon;
+            {menuItems.map((item) => {
+              const Icon = item.icon;
 
-                const isActive =
-                  item.href ===
-                  "/admin"
-                    ? pathname ===
-                      "/admin"
-                    : pathname ===
-                        item.href ||
-                      pathname.startsWith(
-                        `${item.href}/`
-                      );
+              const isActive =
+                item.href === "/admin"
+                  ? pathname === "/admin"
+                  : pathname === item.href ||
+                    pathname.startsWith(
+                      `${item.href}/`
+                    );
 
-                return (
-                  <Link
-                    key={
-                      item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onClose}
+                  className={`
+                    flex
+                    items-center
+                    gap-3
+                    rounded-xl
+                    px-4
+                    py-3
+                    transition-all
+                    ${
+                      isActive
+                        ? "bg-blue-600 text-white shadow-md"
+                        : "text-gray-700 hover:bg-gray-100"
                     }
-                    href={
-                      item.href
-                    }
-                    onClick={
-                      onClose
-                    }
-                    className={`
-                      flex
-                      items-center
-                      gap-3
-                      rounded-xl
-                      px-4
-                      py-3
-                      transition-all
-                      ${
-                        isActive
-                          ? "bg-blue-600 text-white shadow-md"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }
-                    `}
-                  >
+                  `}
+                >
+                  <Icon size={20} />
 
-                    <Icon
-                      size={20}
-                    />
-
-                    <span className="font-medium">
-                      {
-                        item.name
-                      }
-                    </span>
-
-                  </Link>
-                );
-              }
-            )}
+                  <span className="font-medium">
+                    {item.name}
+                  </span>
+                </Link>
+              );
+            })}
 
           </div>
 
@@ -236,9 +234,7 @@ export default function AdminMobileSidebar({
 
             <button
               type="button"
-              onClick={
-                handleLogout
-              }
+              onClick={handleLogout}
               className="w-full rounded-xl bg-red-500 px-4 py-3 font-medium text-white transition hover:bg-red-600"
             >
               Logout

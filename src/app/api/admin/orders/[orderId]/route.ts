@@ -94,7 +94,7 @@ export async function GET(
     */
 
     const {
-      data: items,
+      data: storedItems,
       error: itemsError,
     } = await supabaseAdmin
       .from("order_items")
@@ -121,6 +121,130 @@ export async function GET(
 
     /*
     ========================================
+    NORMALIZE ITEMS
+    ========================================
+
+    New orders already have `order_items`.
+
+    Older single-product orders may have NO
+    `order_items` row and keep their product
+    information directly on `orders`.
+
+    Edit Order requires one common `items[]`
+    structure, so we create a virtual legacy
+    item here without changing the database.
+    ========================================
+    */
+
+    let items = (storedItems ?? []).map((item) => ({
+      ...item,
+      product_id: String(
+        item.product_id ?? ""
+      ).trim(),
+      product_name:
+        item.product_name || "Product",
+      quantity: Math.max(
+        1,
+        Number(item.quantity ?? 0)
+      ),
+      unit_price: Number(
+        item.unit_price ?? 0
+      ),
+      line_total:
+        Number(item.line_total ?? 0) ||
+        Math.max(
+          1,
+          Number(item.quantity ?? 0)
+        ) *
+          Number(item.unit_price ?? 0),
+    }));
+
+    if (
+      items.length === 0 &&
+      order.product_id
+    ) {
+      const productId = String(
+        order.product_id
+      ).trim();
+
+      const storedQuantity = Number(
+        order.quantity ?? 0
+      );
+
+      const productPrice = Number(
+        order.product_price ?? 0
+      );
+
+      const total = Number(
+        order.total ??
+          order.grand_total ??
+          0
+      );
+
+      const deliveryCharge = Number(
+        order.delivery_charge ?? 0
+      );
+
+      const discount = Number(
+        order.discount ?? 0
+      );
+
+      let quantity =
+        storedQuantity > 0
+          ? Math.round(storedQuantity)
+          : 0;
+
+      /*
+      Recover the quantity for old records
+      where orders.quantity was saved as 0.
+      */
+      if (
+        quantity <= 0 &&
+        productPrice > 0
+      ) {
+        const derived =
+          (total -
+            deliveryCharge +
+            discount) /
+          productPrice;
+
+        if (
+          Number.isFinite(derived) &&
+          derived > 0 &&
+          Math.abs(
+            derived -
+              Math.round(derived)
+          ) < 0.01
+        ) {
+          quantity =
+            Math.round(derived);
+        }
+      }
+
+      if (quantity <= 0) {
+        quantity = 1;
+      }
+
+      items = [
+        {
+          id: undefined,
+          order_id: orderId,
+          product_id: productId,
+          product_name:
+            order.product_name ||
+            "Product",
+          quantity,
+          unit_price:
+            productPrice,
+          line_total:
+            productPrice *
+            quantity,
+        },
+      ];
+    }
+
+    /*
+    ========================================
     SUCCESS
     ========================================
     */
@@ -128,7 +252,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       order,
-      items: items ?? [],
+      items,
     });
   } catch (error) {
     console.error(
