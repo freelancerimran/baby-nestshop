@@ -8,6 +8,8 @@ import {
   useRouter,
 } from "next/navigation";
 
+import EditOrderForm from "./orders/edit/EditOrderForm";
+
 /*
 ========================================
 ORDER ITEM
@@ -41,6 +43,7 @@ interface Order {
   district: string;
   deliveryArea: string;
   address: string;
+  note?: string;
 
   deliveryCharge: number;
   discount: number;
@@ -61,12 +64,7 @@ interface Order {
   paidAmount?: number;
   dueAmount?: number;
   paymentStatus?: string;
-
-  /*
-  ========================================
-  MULTIPLE ORDER ITEMS
-  ========================================
-  */
+  paymentMethod?: string;
 
   items?: OrderItem[];
 }
@@ -209,7 +207,7 @@ export default function OrderDetailsModal({
 
   /*
   ========================================
-  CANCEL ORDER STATE
+  CANCEL STATE
   ========================================
   */
 
@@ -222,6 +220,17 @@ export default function OrderDetailsModal({
     cancelMessage,
     setCancelMessage,
   ] = useState("");
+
+  /*
+  ========================================
+  EDIT STATE
+  ========================================
+  */
+
+  const [
+    editing,
+    setEditing,
+  ] = useState(false);
 
   /*
   ========================================
@@ -239,16 +248,20 @@ export default function OrderDetailsModal({
           {
             productId:
               order.productId,
+
             productName:
               order.productName,
+
             quantity:
               Number(
                 order.quantity || 0
               ),
+
             unitPrice:
               Number(
                 order.productPrice || 0
               ),
+
             lineTotal:
               Number(
                 order.productPrice || 0
@@ -261,7 +274,7 @@ export default function OrderDetailsModal({
 
   /*
   ========================================
-  TOTAL ITEM QUANTITY
+  TOTAL QUANTITY
   ========================================
   */
 
@@ -280,7 +293,7 @@ export default function OrderDetailsModal({
 
   /*
   ========================================
-  ORDER STATE HELPERS
+  STATE HELPERS
   ========================================
   */
 
@@ -293,6 +306,23 @@ export default function OrderDetailsModal({
     Boolean(
       consignmentId
     );
+
+  /*
+  ========================================
+  EDIT LOCK
+  ========================================
+
+  Once an order is sent to courier,
+  editing is locked.
+
+  Cancelled orders are also locked.
+
+  ========================================
+  */
+
+  const editLocked =
+    isCancelled ||
+    hasCourier;
 
   /*
   ========================================
@@ -310,14 +340,20 @@ export default function OrderDetailsModal({
         return;
       }
 
+      if (hasCourier) {
+        setPaymentMessage(
+          "❌ Payment cannot be changed because this order has already been sent to courier."
+        );
+
+        return;
+      }
+
       try {
         setPaymentLoading(
           true
         );
 
-        setPaymentMessage(
-          ""
-        );
+        setPaymentMessage("");
 
         const value =
           Number(
@@ -468,9 +504,7 @@ export default function OrderDetailsModal({
           true
         );
 
-        setMessage(
-          ""
-        );
+        setMessage("");
 
         const response =
           await fetch(
@@ -559,9 +593,7 @@ export default function OrderDetailsModal({
           true
         );
 
-        setMessage(
-          ""
-        );
+        setMessage("");
 
         const response =
           await fetch(
@@ -670,17 +702,11 @@ export default function OrderDetailsModal({
           true
         );
 
-        setCancelMessage(
-          ""
-        );
+        setCancelMessage("");
 
-        setPaymentMessage(
-          ""
-        );
+        setPaymentMessage("");
 
-        setMessage(
-          ""
-        );
+        setMessage("");
 
         const response =
           await fetch(
@@ -779,14 +805,107 @@ export default function OrderDetailsModal({
           ? "bg-green-100 text-green-700"
           : "bg-yellow-100 text-yellow-700";
 
+  /*
+  ========================================
+  EDIT MODE
+  ========================================
+  */
+
+  if (editing) {
+    return (
+      <EditOrderForm
+        order={{
+          orderId:
+            order.orderId,
+
+          customerName:
+            order.customerName,
+
+          phone:
+            order.phone,
+
+          district:
+            order.district,
+
+          deliveryArea:
+            order.deliveryArea,
+
+          address:
+            order.address,
+
+          note:
+            order.note || "",
+
+          deliveryCharge:
+            Number(
+              order.deliveryCharge ||
+                0
+            ),
+
+          discount:
+            Number(
+              order.discount ||
+                0
+            ),
+
+          couponCode:
+            order.couponCode ||
+            "",
+
+          total:
+            Number(
+              order.total ||
+                0
+            ),
+
+          paidAmount:
+            Number(
+              order.paidAmount ||
+                0
+            ),
+
+          paymentMethod:
+            order.paymentMethod ||
+            "",
+
+          status:
+            orderStatus,
+
+          items:
+            orderItems,
+        }}
+
+        onClose={() =>
+          setEditing(
+            false
+          )
+        }
+
+        onSaved={() => {
+          setEditing(
+            false
+          );
+
+          router.refresh();
+        }}
+      />
+    );
+  }
+
+  /*
+  ========================================
+  MAIN VIEW
+  ========================================
+  */
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
 
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
 
-        {/* ================================
+        {/* =================================
             HEADER
-        ================================ */}
+        ================================= */}
 
         <div className="mb-6 flex items-center justify-between">
 
@@ -813,9 +932,9 @@ export default function OrderDetailsModal({
 
         <div className="space-y-6">
 
-          {/* ================================
-              ORDER INFORMATION
-          ================================ */}
+          {/* =================================
+              CUSTOMER
+          ================================= */}
 
           <section>
 
@@ -876,13 +995,21 @@ export default function OrderDetailsModal({
                 {order.address}
               </div>
 
+              <div className="sm:col-span-2">
+                <strong>
+                  Customer Note:
+                </strong>{" "}
+                {order.note ||
+                  "No note"}
+              </div>
+
             </div>
 
           </section>
 
-          {/* ================================
-              PRODUCTS ORDERED
-          ================================ */}
+          {/* =================================
+              PRODUCTS
+          ================================= */}
 
           <section>
 
@@ -904,8 +1031,6 @@ export default function OrderDetailsModal({
 
             <div className="overflow-hidden rounded-xl border">
 
-              {/* TABLE HEADER */}
-
               <div className="grid grid-cols-[1fr_70px_100px_110px] gap-3 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-600">
 
                 <div>
@@ -926,8 +1051,6 @@ export default function OrderDetailsModal({
 
               </div>
 
-              {/* PRODUCTS */}
-
               {orderItems.map(
                 (
                   item,
@@ -939,11 +1062,15 @@ export default function OrderDetailsModal({
                   >
 
                     <div className="font-medium text-gray-900">
-                      {item.productName}
+                      {
+                        item.productName
+                      }
                     </div>
 
                     <div className="text-center font-semibold">
-                      {item.quantity}
+                      {
+                        item.quantity
+                      }
                     </div>
 
                     <div className="text-right">
@@ -964,8 +1091,6 @@ export default function OrderDetailsModal({
                 )
               )}
 
-              {/* TOTAL ITEMS */}
-
               <div className="grid grid-cols-[1fr_70px_100px_110px] gap-3 border-t bg-gray-50 px-4 py-3 text-sm font-bold">
 
                 <div>
@@ -973,7 +1098,9 @@ export default function OrderDetailsModal({
                 </div>
 
                 <div className="text-center">
-                  {totalOrderedQuantity}
+                  {
+                    totalOrderedQuantity
+                  }
                 </div>
 
                 <div />
@@ -1002,9 +1129,9 @@ export default function OrderDetailsModal({
 
           </section>
 
-          {/* ================================
-              ORDER PRICE SUMMARY
-          ================================ */}
+          {/* =================================
+              ORDER SUMMARY
+          ================================= */}
 
           <section>
 
@@ -1055,9 +1182,11 @@ export default function OrderDetailsModal({
                 </div>
 
                 {Number(
-                  order.discount || 0
+                  order.discount ||
+                    0
                 ) > 0 && (
                   <div className="flex justify-between text-green-700">
+
                     <span>
                       Discount
                     </span>
@@ -1068,24 +1197,30 @@ export default function OrderDetailsModal({
                         order.discount
                       ).toLocaleString()}
                     </span>
+
                   </div>
                 )}
 
                 {order.couponCode && (
                   <div className="flex justify-between text-sm text-gray-500">
+
                     <span>
                       Coupon
                     </span>
 
                     <span>
-                      {order.couponCode}
+                      {
+                        order.couponCode
+                      }
                     </span>
+
                   </div>
                 )}
 
                 <hr />
 
                 <div className="flex justify-between text-xl font-bold">
+
                   <span>
                     Grand Total
                   </span>
@@ -1096,6 +1231,7 @@ export default function OrderDetailsModal({
                       order.total
                     ).toLocaleString()}
                   </span>
+
                 </div>
 
               </div>
@@ -1104,27 +1240,61 @@ export default function OrderDetailsModal({
 
           </section>
 
-          {/* ================================
-              STATUS
-          ================================ */}
+          {/* =================================
+              STATUS + EDIT
+          ================================= */}
 
           <section>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
 
-              <strong>
-                Status:
-              </strong>
+              <div className="flex items-center gap-2">
 
-              <span
-                className={`rounded-full px-3 py-1 text-sm font-medium ${orderStatusBadge}`}
-              >
-                {orderStatus}
-              </span>
+                <strong>
+                  Status:
+                </strong>
+
+                <span
+                  className={`rounded-full px-3 py-1 text-sm font-medium ${orderStatusBadge}`}
+                >
+                  {orderStatus}
+                </span>
+
+              </div>
+
+              {/* EDIT BUTTON */}
+
+              {!editLocked ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditing(
+                      true
+                    )
+                  }
+                  disabled={
+                    loading ||
+                    cancelLoading ||
+                    paymentLoading
+                  }
+                  className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  ✏️ Edit Order
+                </button>
+              ) : (
+                <div className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500">
+                  🔒 Editing Locked
+                </div>
+              )}
 
             </div>
 
-            {/* CANCELLED NOTICE */}
+            {hasCourier &&
+              !isCancelled && (
+                <div className="mt-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+                  This order has already been sent to the courier. Editing is locked.
+                </div>
+              )}
 
             {isCancelled && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -1142,9 +1312,9 @@ export default function OrderDetailsModal({
 
           </section>
 
-          {/* ================================
-              PAYMENT INFORMATION
-          ================================ */}
+          {/* =================================
+              PAYMENT
+          ================================= */}
 
           <section>
 
@@ -1164,7 +1334,7 @@ export default function OrderDetailsModal({
                   </div>
 
                   <div className="text-lg font-bold">
-                    ৳
+                    ৳{" "}
                     {Number(
                       order.total
                     ).toLocaleString()}
@@ -1177,7 +1347,7 @@ export default function OrderDetailsModal({
                   </div>
 
                   <div className="text-lg font-bold text-green-700">
-                    ৳
+                    ৳{" "}
                     {paidAmount.toLocaleString()}
                   </div>
                 </div>
@@ -1188,7 +1358,7 @@ export default function OrderDetailsModal({
                   </div>
 
                   <div className="text-lg font-bold text-red-700">
-                    ৳
+                    ৳{" "}
                     {dueAmount.toLocaleString()}
                   </div>
                 </div>
@@ -1200,12 +1370,12 @@ export default function OrderDetailsModal({
                 <span
                   className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${paymentBadge}`}
                 >
-                  {paymentStatus}
+                  {
+                    paymentStatus
+                  }
                 </span>
 
               </div>
-
-              {/* PAYMENT EDITING */}
 
               {!consignmentId &&
               !isCancelled ? (
@@ -1271,7 +1441,9 @@ export default function OrderDetailsModal({
 
               {paymentMessage && (
                 <div className="mt-3 rounded-lg bg-white p-3 text-sm">
-                  {paymentMessage}
+                  {
+                    paymentMessage
+                  }
                 </div>
               )}
 
@@ -1279,9 +1451,9 @@ export default function OrderDetailsModal({
 
           </section>
 
-          {/* ================================
-              COURIER INFORMATION
-          ================================ */}
+          {/* =================================
+              COURIER
+          ================================= */}
 
           <section>
 
@@ -1332,11 +1504,11 @@ export default function OrderDetailsModal({
 
             {message && (
               <div className="mt-4 rounded-lg bg-gray-100 p-3 text-sm">
-                {message}
+                {
+                  message
+                }
               </div>
             )}
-
-            {/* COURIER ACTIONS */}
 
             {!isCancelled && (
               <div className="flex flex-wrap gap-3 pt-4">
@@ -1383,9 +1555,9 @@ export default function OrderDetailsModal({
 
           </section>
 
-          {/* ================================
-              CANCEL ORDER
-          ================================ */}
+          {/* =================================
+              CANCEL
+          ================================= */}
 
           <section>
 
@@ -1431,7 +1603,9 @@ export default function OrderDetailsModal({
 
               {cancelMessage && (
                 <div className="mt-3 rounded-lg bg-white p-3 text-sm">
-                  {cancelMessage}
+                  {
+                    cancelMessage
+                  }
                 </div>
               )}
 
@@ -1440,7 +1614,9 @@ export default function OrderDetailsModal({
           </section>
 
         </div>
+
       </div>
+
     </div>
   );
 }
