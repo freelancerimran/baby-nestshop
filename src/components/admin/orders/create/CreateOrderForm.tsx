@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  ChangeEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -24,6 +31,10 @@ import {
   Truck,
   Wallet,
   StickyNote,
+  ScanText,
+  ImagePlus,
+  X,
+  Upload,
 } from "lucide-react";
 
 /* =========================================================
@@ -98,6 +109,16 @@ interface FormState {
   orderStatus: string;
 }
 
+interface SmartCustomerData {
+  customerName: string;
+  phone: string;
+  address: string;
+  district: string;
+}
+
+type SmartFillTab =
+  | "text"
+  | "image";
 /* =========================================================
    CONSTANTS
 ========================================================= */
@@ -294,6 +315,615 @@ function productImage(product: Product) {
 }
 
 /* =========================================================
+   SMART CUSTOMER PARSER
+========================================================= */
+
+function normalizeBangladeshPhone(
+  value: string
+) {
+  const cleaned =
+    value
+      .replace(
+        /[^\d+]/g,
+        ""
+      )
+      .trim();
+
+  let digits =
+    cleaned.replace(
+      /\D/g,
+      ""
+    );
+
+  if (
+    digits.startsWith(
+      "880"
+    ) &&
+    digits.length >= 13
+  ) {
+    digits =
+      `0${digits.slice(3)}`;
+  }
+
+  if (
+    digits.startsWith(
+      "1"
+    ) &&
+    digits.length === 10
+  ) {
+    digits =
+      `0${digits}`;
+  }
+
+  if (
+    /^01\d{9}$/.test(
+      digits
+    )
+  ) {
+    return digits;
+  }
+
+  return "";
+}
+
+function extractBangladeshPhone(
+  text: string
+) {
+  const matches =
+    text.match(
+      /(?:\+?88)?01[3-9][0-9\s-]{8,11}/g
+    ) ?? [];
+
+  for (
+    const match of matches
+  ) {
+    const phone =
+      normalizeBangladeshPhone(
+        match
+      );
+
+    if (phone) {
+      return phone;
+    }
+  }
+
+  return "";
+}
+
+function cleanLine(
+  value: string
+) {
+  return value
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .replace(
+      /^[\s:;,\-|]+/,
+      ""
+    )
+    .replace(
+      /[\s:;,\-|]+$/,
+      ""
+    )
+    .trim();
+}
+
+function detectDistrictFromText(
+  text: string
+) {
+  const normalized =
+    text.toLowerCase();
+
+  const sortedDistricts =
+    [...DISTRICTS].sort(
+      (
+        first,
+        second
+      ) =>
+        second.length -
+        first.length
+    );
+
+  for (
+    const district of sortedDistricts
+  ) {
+    const lowerDistrict =
+      district.toLowerCase();
+
+    if (
+      normalized.includes(
+        lowerDistrict
+      )
+    ) {
+      return district;
+    }
+  }
+
+  /*
+   * Common Bangladesh
+   * district aliases.
+   */
+
+  const aliases:
+    Record<string, string> = {
+      chittagong:
+        "Chattogram",
+
+      comilla:
+        "Cumilla",
+
+      barisal:
+        "Barishal",
+
+      jessore:
+        "Jashore",
+
+      sylhet:
+        "Sylhet",
+
+      coxsbazar:
+        "Cox's Bazar",
+
+      "cox's bazar":
+        "Cox's Bazar",
+    };
+
+  for (
+    const [
+      alias,
+      district,
+    ] of Object.entries(
+      aliases
+    )
+  ) {
+    if (
+      normalized.includes(
+        alias
+      )
+    ) {
+      return district;
+    }
+  }
+
+  return "";
+}
+
+function isLikelyLabel(
+  line: string
+) {
+  const normalized =
+    line
+      .toLowerCase()
+      .replace(
+        /\s+/g,
+        " "
+      )
+      .trim();
+
+  const labels = [
+    "name",
+    "customer name",
+    "phone",
+    "phone number",
+    "mobile",
+    "mobile number",
+    "address",
+    "full address",
+    "district",
+    "thana",
+    "area",
+    "ঠিকানা",
+    "নাম",
+    "ফোন",
+    "মোবাইল",
+    "জেলা",
+  ];
+
+  return labels.some(
+    (label) =>
+      normalized === label
+  );
+}
+
+function extractValueAfterLabel(
+  lines: string[],
+  labels: string[]
+) {
+  for (
+    const line of lines
+  ) {
+    const lowerLine =
+      line.toLowerCase();
+
+    for (
+      const label of labels
+    ) {
+      const lowerLabel =
+        label.toLowerCase();
+
+      if (
+        lowerLine.startsWith(
+          lowerLabel
+        )
+      ) {
+        const value =
+          cleanLine(
+            line
+              .slice(
+                lowerLabel.length
+              )
+              .replace(
+                /^[:\-–—]+/,
+                ""
+              )
+          );
+
+        if (value) {
+          return value;
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
+function looksLikePhoneLine(
+  line: string
+) {
+  return Boolean(
+    extractBangladeshPhone(
+      line
+    )
+  );
+}
+
+function looksLikeAddress(
+  line: string
+) {
+  const normalized =
+    line.toLowerCase();
+
+  const addressWords = [
+    "road",
+    "rd",
+    "house",
+    "flat",
+    "floor",
+    "block",
+    "sector",
+    "village",
+    "village",
+    "para",
+    "bazar",
+    "thana",
+    "upazila",
+    "district",
+    "dhaka",
+    "chattogram",
+    "cumilla",
+    "bangladesh",
+    "বাসা",
+    "বাড়ি",
+    "বাড়ি",
+    "রোড",
+    "থানা",
+    "জেলা",
+    "গ্রাম",
+  ];
+
+  if (
+    line.length >= 12 &&
+    addressWords.some(
+      (word) =>
+        normalized.includes(
+          word
+        )
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    line.includes(
+      ","
+    ) &&
+    line.length >= 12
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function looksLikeName(
+  line: string
+) {
+  const value =
+    cleanLine(line);
+
+  if (
+    !value ||
+    value.length < 2 ||
+    value.length > 70
+  ) {
+    return false;
+  }
+
+  if (
+    looksLikePhoneLine(
+      value
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    looksLikeAddress(
+      value
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    isLikelyLabel(
+      value
+    )
+  ) {
+    return false;
+  }
+
+  const lower =
+    value.toLowerCase();
+
+  const invalidWords = [
+    "message",
+    "messenger",
+    "facebook",
+    "today",
+    "yesterday",
+    "seen",
+    "typing",
+    "reply",
+    "order",
+    "cash on delivery",
+    "cod",
+    "delivery",
+    "address",
+    "phone",
+    "mobile",
+  ];
+
+  if (
+    invalidWords.some(
+      (word) =>
+        lower === word
+    )
+  ) {
+    return false;
+  }
+
+  /*
+   * A name should generally
+   * not contain too many numbers.
+   */
+
+  const digits =
+    (
+      value.match(
+        /\d/g
+      ) ?? []
+    ).length;
+
+  if (
+    digits > 1
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function extractSmartCustomerData(
+  rawText: string
+): SmartCustomerData {
+  const text =
+    rawText
+      .replace(
+        /\r/g,
+        "\n"
+      )
+      .replace(
+        /\n{3,}/g,
+        "\n\n"
+      )
+      .trim();
+
+  const rawLines =
+    text
+      .split("\n")
+      .map(
+        cleanLine
+      )
+      .filter(Boolean);
+
+  const customerNameFromLabel =
+    extractValueAfterLabel(
+      rawLines,
+      [
+        "customer name",
+        "name",
+        "নাম",
+      ]
+    );
+
+  const phone =
+    extractBangladeshPhone(
+      text
+    );
+
+  let address =
+    extractValueAfterLabel(
+      rawLines,
+      [
+        "full address",
+        "address",
+        "ঠিকানা",
+      ]
+    );
+
+  /*
+   * If address is not explicitly
+   * labeled, collect likely
+   * address lines.
+   */
+
+  if (!address) {
+    const addressLines =
+      rawLines.filter(
+        (
+          line,
+          index
+        ) => {
+          if (
+            looksLikePhoneLine(
+              line
+            )
+          ) {
+            return false;
+          }
+
+          if (
+            isLikelyLabel(
+              line
+            )
+          ) {
+            return false;
+          }
+
+          if (
+            looksLikeAddress(
+              line
+            )
+          ) {
+            return true;
+          }
+
+          /*
+           * Lines immediately
+           * after a phone number
+           * are often addresses.
+           */
+
+          const previous =
+            rawLines[
+              index - 1
+            ];
+
+          if (
+            previous &&
+            looksLikePhoneLine(
+              previous
+            ) &&
+            line.length >= 8
+          ) {
+            return true;
+          }
+
+          return false;
+        }
+      );
+
+    address =
+      addressLines
+        .slice(
+          0,
+          3
+        )
+        .join(", ");
+  }
+
+  let customerName =
+    customerNameFromLabel;
+
+  if (!customerName) {
+    /*
+     * First suitable line is
+     * treated as the probable name.
+     */
+
+    const nameLine =
+      rawLines.find(
+        (
+          line,
+          index
+        ) => {
+          if (
+            !looksLikeName(
+              line
+            )
+          ) {
+            return false;
+          }
+
+          /*
+           * Prefer lines before
+           * phone/address details.
+           */
+
+          if (
+            index <= 3
+          ) {
+            return true;
+          }
+
+          return false;
+        }
+      );
+
+    customerName =
+      nameLine ?? "";
+  }
+
+  /*
+   * Do not accidentally use
+   * the address as a name.
+   */
+
+  if (
+    customerName &&
+    address &&
+    customerName ===
+      address
+  ) {
+    customerName = "";
+  }
+
+  const district =
+    detectDistrictFromText(
+      `${address}\n${text}`
+    );
+
+  return {
+    customerName:
+      cleanLine(
+        customerName
+      ),
+
+    phone,
+
+    address:
+      cleanLine(
+        address
+      ),
+
+    district,
+  };
+}
+
+/* =========================================================
    COMPONENT
 ========================================================= */
 
@@ -321,6 +951,33 @@ export default function CreateOrderForm() {
 
   const [error, setError] =
     useState("");
+
+  /* =======================================================
+     SMART CUSTOMER FILL
+  ======================================================= */
+
+  const [smartFillTab, setSmartFillTab] =
+    useState<SmartFillTab>("text");
+
+  const [smartText, setSmartText] =
+    useState("");
+
+  const [smartFillLoading, setSmartFillLoading] =
+    useState(false);
+
+  const [smartFillMessage, setSmartFillMessage] =
+    useState("");
+
+  const [ocrLoading, setOcrLoading] =
+    useState(false);
+
+  const [ocrPreview, setOcrPreview] =
+    useState("");
+
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
   const [form, setForm] =
     useState<FormState>({
@@ -496,6 +1153,323 @@ export default function CreateOrderForm() {
     productPage,
     totalProductPages,
   ]);
+
+  /* =======================================================
+     SMART CUSTOMER FILL FUNCTIONS
+  ======================================================= */
+
+  function applySmartCustomerData(
+    data: SmartCustomerData
+  ) {
+    setForm((current) => ({
+      ...current,
+
+      customerName:
+        data.customerName ||
+        current.customerName,
+
+      phone:
+        data.phone ||
+        current.phone,
+
+      address:
+        data.address ||
+        current.address,
+
+      district:
+        data.district ||
+        current.district,
+    }));
+  }
+
+  async function parseSmartText(
+    textToParse?: string
+  ) {
+    const sourceText =
+      (
+        textToParse ??
+        smartText
+      ).trim();
+
+    if (!sourceText) {
+      setSmartFillMessage(
+        "Please enter or paste customer information first."
+      );
+
+      return;
+    }
+
+    try {
+      setSmartFillLoading(true);
+      setSmartFillMessage("");
+      setError("");
+
+      const response =
+        await fetch(
+          "/api/admin/orders/parse-text",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              text: sourceText,
+            }),
+          }
+        );
+
+      const result =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !result?.success
+      ) {
+        throw new Error(
+          result?.error ||
+            "Failed to extract customer information."
+        );
+      }
+
+      const data:
+        SmartCustomerData = {
+          customerName:
+            String(
+              result?.data
+                ?.customerName ??
+                ""
+            ),
+
+          phone:
+            String(
+              result?.data
+                ?.phone ??
+                ""
+            ),
+
+          address:
+            String(
+              result?.data
+                ?.address ??
+                ""
+            ),
+
+          district:
+            String(
+              result?.data
+                ?.district ??
+                ""
+            ),
+        };
+
+      applySmartCustomerData(
+        data
+      );
+
+      const foundFields = [
+        data.customerName
+          ? "name"
+          : "",
+
+        data.phone
+          ? "phone"
+          : "",
+
+        data.address
+          ? "address"
+          : "",
+
+        data.district
+          ? "district"
+          : "",
+      ].filter(Boolean);
+
+      if (
+        foundFields.length ===
+        0
+      ) {
+        setSmartFillMessage(
+          "No customer information could be detected. Please fill the fields manually."
+        );
+
+        return;
+      }
+
+      setSmartFillMessage(
+        `Successfully filled: ${foundFields.join(
+          ", "
+        )}. Please review before creating the order.`
+      );
+    } catch (err) {
+      console.error(
+        "SMART FILL ERROR:",
+        err
+      );
+
+      setSmartFillMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to process customer information."
+      );
+    } finally {
+      setSmartFillLoading(false);
+    }
+  }
+
+  /* =======================================================
+     IMAGE OCR
+  ======================================================= */
+
+  async function handleSmartImageUpload(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file =
+      event.target.files?.[0];
+
+    /*
+     * Reset input so the same image
+     * can be selected again.
+     */
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (
+      !file.type.startsWith(
+        "image/"
+      )
+    ) {
+      setSmartFillMessage(
+        "Please select a valid image file."
+      );
+
+      return;
+    }
+
+    const maxFileSize =
+      10 * 1024 * 1024;
+
+    if (
+      file.size >
+      maxFileSize
+    ) {
+      setSmartFillMessage(
+        "Image is too large. Please select an image smaller than 10 MB."
+      );
+
+      return;
+    }
+
+    let previewUrl = "";
+
+    try {
+      setOcrLoading(true);
+      setSmartFillMessage("");
+      setError("");
+
+      /*
+       * Create local image preview.
+       */
+      previewUrl =
+        URL.createObjectURL(
+          file
+        );
+
+      setOcrPreview(
+        previewUrl
+      );
+
+      /*
+       * Load Tesseract only when
+       * image OCR is actually used.
+       */
+      const {
+        createWorker,
+      } = await import(
+        "tesseract.js"
+      );
+
+      const worker =
+        await createWorker(
+          "eng"
+        );
+
+      const result =
+        await worker.recognize(
+          file
+        );
+
+      const extractedText =
+        result?.data?.text?.trim() ??
+        "";
+
+      await worker.terminate();
+
+      if (!extractedText) {
+        setSmartFillMessage(
+          "No readable text was found in this image. Please try a clearer screenshot."
+        );
+
+        return;
+      }
+
+      /*
+       * Keep extracted OCR text
+       * available in the text tab.
+       */
+      setSmartText(
+        extractedText
+      );
+
+      /*
+       * Use the existing parser
+       * to extract customer data.
+       */
+      await parseSmartText(
+        extractedText
+      );
+
+    } catch (err) {
+      console.error(
+        "IMAGE OCR ERROR:",
+        err
+      );
+
+      setSmartFillMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to read text from the image."
+      );
+    } finally {
+      setOcrLoading(false);
+    }
+  }
+
+  function removeSmartImage() {
+    if (
+      ocrPreview
+    ) {
+      URL.revokeObjectURL(
+        ocrPreview
+      );
+    }
+
+    setOcrPreview("");
+
+    setSmartFillMessage("");
+
+    if (
+      fileInputRef.current
+    ) {
+      fileInputRef.current.value =
+        "";
+    }
+  }
 
   /* =======================================================
      FORM UPDATE
@@ -1141,6 +2115,444 @@ export default function CreateOrderForm() {
               </div>
 
               <div className="p-6">
+
+                                {/* ===========================================
+                    SMART CUSTOMER FILL
+                ============================================ */}
+
+                <div className="mb-6 overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 via-white to-violet-50/50">
+
+                  {/* HEADER */}
+
+                  <div className="flex flex-col gap-4 border-b border-blue-100/80 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+
+                    <div className="flex items-center gap-3">
+
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20">
+
+                        <Sparkles
+                          size={18}
+                        />
+
+                      </div>
+
+                      <div>
+
+                        <h3 className="text-sm font-black text-slate-900">
+                          Smart Customer Fill
+                        </h3>
+
+                        <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                          Paste customer details or upload a screenshot to fill the form automatically.
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                    {/* TABS */}
+
+                    <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSmartFillTab(
+                            "text"
+                          );
+
+                          setSmartFillMessage(
+                            ""
+                          );
+                        }}
+                        className={`flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold transition ${
+                          smartFillTab ===
+                          "text"
+                            ? "bg-blue-600 text-white shadow-sm"
+                            : "text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+
+                        <ScanText
+                          size={15}
+                        />
+
+                        Text
+
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSmartFillTab(
+                            "image"
+                          );
+
+                          setSmartFillMessage(
+                            ""
+                          );
+                        }}
+                        className={`flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-bold transition ${
+                          smartFillTab ===
+                          "image"
+                            ? "bg-blue-600 text-white shadow-sm"
+                            : "text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+
+                        <ImagePlus
+                          size={15}
+                        />
+
+                        Image OCR
+
+                      </button>
+
+                    </div>
+
+                  </div>
+
+                  <div className="p-4">
+
+                    {/* =======================================
+                        TEXT TAB
+                    ======================================= */}
+
+                    {smartFillTab ===
+                      "text" && (
+
+                      <div>
+
+                        <textarea
+                          value={
+                            smartText
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setSmartText(
+                              event.target.value
+                            )
+                          }
+                          placeholder={`Example:
+
+Name: MD Imran
+Phone: 017XXXXXXXX
+Address: House 10, Road 5, Banasree
+District: Dhaka`}
+                          rows={5}
+                          className="min-h-[130px] w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                        />
+
+                        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+                          <p className="text-[11px] leading-5 text-slate-400">
+                            Paste customer name, phone number and address. Smart Fill will detect available information automatically.
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              parseSmartText()
+                            }
+                            disabled={
+                              smartFillLoading ||
+                              !smartText.trim()
+                            }
+                            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-xs font-black text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+
+                            {smartFillLoading ? (
+
+                              <>
+                                <Loader2
+                                  size={16}
+                                  className="animate-spin"
+                                />
+
+                                Processing...
+
+                              </>
+
+                            ) : (
+
+                              <>
+                                <Sparkles
+                                  size={16}
+                                />
+
+                                Smart Fill
+
+                              </>
+
+                            )}
+
+                          </button>
+
+                        </div>
+
+                      </div>
+                    )}
+
+                    {/* =======================================
+                        IMAGE OCR TAB
+                    ======================================= */}
+
+                    {smartFillTab ===
+                      "image" && (
+
+                      <div>
+
+                        {!ocrPreview ? (
+
+                          <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-5">
+
+                            <input
+                              ref={
+                                fileInputRef
+                              }
+                              type="file"
+                              accept="image/png,image/jpeg,image/jpg,image/webp"
+                              onChange={
+                                handleSmartImageUpload
+                              }
+                              className="hidden"
+                            />
+
+                            <div className="flex flex-col items-center justify-center text-center">
+
+                              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+
+                                <ImagePlus
+                                  size={24}
+                                />
+
+                              </div>
+
+                              <h4 className="mt-3 text-sm font-black text-slate-800">
+                                Upload Customer Screenshot
+                              </h4>
+
+                              <p className="mt-1 max-w-md text-xs leading-5 text-slate-400">
+                                Upload a screenshot containing customer name, phone number and address.
+                              </p>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  fileInputRef.current?.click()
+                                }
+                                disabled={
+                                  ocrLoading
+                                }
+                                className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-5 text-xs font-black text-blue-600 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+
+                                {ocrLoading ? (
+
+                                  <>
+                                    <Loader2
+                                      size={16}
+                                      className="animate-spin"
+                                    />
+
+                                    Reading Image...
+
+                                  </>
+
+                                ) : (
+
+                                  <>
+                                    <Upload
+                                      size={16}
+                                    />
+
+                                    Choose Image
+
+                                  </>
+
+                                )}
+
+                              </button>
+
+                              <p className="mt-3 text-[10px] font-medium text-slate-400">
+                                PNG, JPG or WEBP • Maximum 10 MB
+                              </p>
+
+                            </div>
+
+                          </div>
+
+                        ) : (
+
+                          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+
+                            <div className="flex flex-col gap-4 sm:flex-row">
+
+                              {/* IMAGE PREVIEW */}
+
+                              <div className="relative h-44 w-full shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:w-60">
+
+                                <img
+                                  src={
+                                    ocrPreview
+                                  }
+                                  alt="Customer information preview"
+                                  className="h-full w-full object-contain"
+                                />
+
+                                <button
+                                  type="button"
+                                  onClick={
+                                    removeSmartImage
+                                  }
+                                  disabled={
+                                    ocrLoading
+                                  }
+                                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg bg-white text-red-500 shadow-md transition hover:bg-red-50 disabled:opacity-50"
+                                  aria-label="Remove image"
+                                >
+
+                                  <X
+                                    size={16}
+                                  />
+
+                                </button>
+
+                              </div>
+
+                              {/* OCR STATUS */}
+
+                              <div className="flex min-w-0 flex-1 flex-col justify-center">
+
+                                {ocrLoading ? (
+
+                                  <>
+
+                                    <div className="flex items-center gap-2 text-blue-600">
+
+                                      <Loader2
+                                        size={18}
+                                        className="animate-spin"
+                                      />
+
+                                      <span className="text-sm font-black">
+                                        Reading image with OCR...
+                                      </span>
+
+                                    </div>
+
+                                    <p className="mt-2 text-xs leading-5 text-slate-400">
+                                      Extracting customer information. This may take a few seconds.
+                                    </p>
+
+                                  </>
+
+                                ) : (
+
+                                  <>
+
+                                    <div className="flex items-center gap-2 text-emerald-600">
+
+                                      <CheckCircle2
+                                        size={18}
+                                      />
+
+                                      <span className="text-sm font-black">
+                                        Image processed successfully
+                                      </span>
+
+                                    </div>
+
+                                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                                      Detected text has been processed using Smart Fill. Please review the customer fields below.
+                                    </p>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        removeSmartImage();
+
+                                        fileInputRef.current?.click();
+                                      }}
+                                      className="mt-4 flex h-10 w-fit items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-bold text-slate-600 transition hover:bg-slate-100"
+                                    >
+
+                                      <Upload
+                                        size={15}
+                                      />
+
+                                      Choose Another Image
+
+                                    </button>
+
+                                  </>
+
+                                )}
+
+                              </div>
+
+                            </div>
+
+                          </div>
+
+                        )}
+
+                      </div>
+                    )}
+
+                    {/* =======================================
+                        SMART FILL MESSAGE
+                    ======================================= */}
+
+                    {smartFillMessage && (
+
+                      <div
+                        className={`mt-4 flex items-start gap-3 rounded-xl border px-4 py-3 ${
+                          smartFillMessage.startsWith(
+                            "Successfully"
+                          ) ||
+                          smartFillMessage.startsWith(
+                            "Image processed"
+                          )
+                            ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                            : "border-amber-100 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+
+                        {smartFillMessage.startsWith(
+                          "Successfully"
+                        ) ||
+                        smartFillMessage.startsWith(
+                          "Image processed"
+                        ) ? (
+
+                          <CheckCircle2
+                            size={17}
+                            className="mt-0.5 shrink-0"
+                          />
+
+                        ) : (
+
+                          <AlertCircle
+                            size={17}
+                            className="mt-0.5 shrink-0"
+                          />
+
+                        )}
+
+                        <p className="text-xs font-medium leading-5">
+                          {
+                            smartFillMessage
+                          }
+                        </p>
+
+                      </div>
+                    )}
+
+                  </div>
+
+                </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
 
