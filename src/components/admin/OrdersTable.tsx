@@ -117,6 +117,8 @@ type Order = {
 
   orderType?: string;
 
+  orderSource?: string;
+
   /*
   ========================================
   PAYMENT
@@ -942,7 +944,7 @@ export default function OrdersTable({
       const remaining = Math.max(0, items.length - visibleItems.length);
 
       return (
-        <div className="min-w-[250px] max-w-[330px] space-y-2">
+        <div className="min-w-[150px] max-w-[190px] space-y-2">
           {visibleItems.map((item, index) => (
             <div
               key={item.id ?? `${item.productId}-${index}`}
@@ -963,7 +965,7 @@ export default function OrdersTable({
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold text-gray-800">
+                <div className="max-w-[120px] truncate font-semibold text-gray-800">
                   {item.productName || "Product"}
                 </div>
                 <div className="mt-0.5 text-xs text-gray-500">
@@ -983,7 +985,7 @@ export default function OrdersTable({
     }
 
     return (
-      <div className="flex min-w-[250px] max-w-[330px] items-center gap-2.5">
+      <div className="flex min-w-[150px] max-w-[190px] items-center gap-2.5">
         <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-gray-100 bg-gray-50">
           {order.productImage ? (
             <img
@@ -999,7 +1001,7 @@ export default function OrdersTable({
         </div>
 
         <div className="min-w-0">
-          <div className="truncate font-semibold text-gray-800">
+          <div className="max-w-[120px] truncate font-semibold text-gray-800">
             {order.productName || "Product"}
           </div>
           <div className="mt-0.5 text-xs text-gray-500">
@@ -1415,7 +1417,7 @@ export default function OrdersTable({
                   ["Order", "min-w-[145px]"],
                   ["Date", "min-w-[110px]"],
                   ["Customer", "min-w-[190px]"],
-                  ["Product", "min-w-[285px]"],
+                  ["Product", "min-w-[200px]"],
                   ["Qty", "w-[70px]"],
                   ["Payment", "min-w-[125px]"],
                   ["Amount", "min-w-[105px]"],
@@ -1464,8 +1466,27 @@ export default function OrdersTable({
                     </td>
 
                     <td className="px-4 py-4 align-middle">
-                      <div className="font-bold text-gray-900">#{order.orderId}</div>
-                      <div className="mt-1 text-xs text-gray-400">{order.orderType || "Website Order"}</div>
+                      <div
+                        className="max-w-[105px] truncate font-bold text-gray-900"
+                        title={order.orderId}
+                      >
+                        #{order.orderId.length > 8
+                          ? `${order.orderId.slice(0, 8)}...`
+                          : order.orderId}
+                      </div>
+                      <div className="mt-1">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                            order.orderSource === "admin"
+                              ? "bg-blue-50 text-blue-600"
+                              : "bg-emerald-50 text-emerald-600"
+                          }`}
+                        >
+                          {order.orderSource === "admin"
+                            ? "Admin"
+                            : "Website"}
+                        </span>
+                      </div>
                     </td>
 
                     <td className="whitespace-nowrap px-4 py-4 align-middle">

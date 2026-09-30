@@ -247,6 +247,10 @@ async function getOrders() {
         items: normalizedItems,
         totalItems,
         orderType: order.order_type || "",
+        orderSource:
+          order.order_source === "admin"
+            ? "admin"
+            : "website",
 
         customerName: order.customer_name,
         phone: order.phone,
