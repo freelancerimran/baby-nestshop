@@ -223,6 +223,22 @@ export default function OrderDetailsModal({
 
   /*
   ========================================
+  PERMANENT DELETE STATE
+  ========================================
+  */
+
+  const [
+    deleteLoading,
+    setDeleteLoading,
+  ] = useState(false);
+
+  const [
+    deleteMessage,
+    setDeleteMessage,
+  ] = useState("");
+
+  /*
+  ========================================
   EDIT STATE
   ========================================
   */
@@ -768,6 +784,78 @@ export default function OrderDetailsModal({
         setCancelLoading(
           false
         );
+      }
+    };
+
+  /*
+  ========================================
+  PERMANENT DELETE ORDER
+  ========================================
+  */
+
+  const handlePermanentDeleteOrder =
+    async () => {
+      const confirmed =
+        window.confirm(
+          `PERMANENTLY DELETE order ${order.orderId}?\\n\\nThis action cannot be undone.\\n\\nThe system will safely restore stock if it has not already been restored. Coupon usage will also be restored when applicable.\\n\\nContinue?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setDeleteLoading(true);
+        setDeleteMessage("");
+        setCancelMessage("");
+        setPaymentMessage("");
+        setMessage("");
+
+        const response =
+          await fetch(
+            `/api/admin/orders/${encodeURIComponent(
+              order.orderId
+            )}`,
+            {
+              method: "DELETE",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          setDeleteMessage(
+            `❌ ${
+              data.message ||
+              "Permanent order deletion failed."
+            }`
+          );
+
+          return;
+        }
+
+        setDeleteMessage(
+          "✅ Order permanently deleted successfully."
+        );
+
+        router.refresh();
+        onClose();
+      } catch (error) {
+        console.error(error);
+
+        setDeleteMessage(
+          "❌ Permanent order deletion failed."
+        );
+      } finally {
+        setDeleteLoading(false);
       }
     };
 
@@ -1606,6 +1694,52 @@ export default function OrderDetailsModal({
                   {
                     cancelMessage
                   }
+                </div>
+              )}
+
+            </div>
+
+          </section>
+
+          {/* =================================
+              PERMANENT DELETE
+          ================================= */}
+
+          <section>
+
+            <hr className="mb-5" />
+
+            <div className="rounded-xl border border-red-300 bg-red-50 p-4">
+
+              <h3 className="font-bold text-red-800">
+                Permanent Delete
+              </h3>
+
+              <p className="mt-2 text-sm text-red-700">
+                Permanently deleting an order removes the order and its order items from the database. If stock has not already been restored, the server will restore it safely before deletion. This action cannot be undone.
+              </p>
+
+              <button
+                type="button"
+                onClick={
+                  handlePermanentDeleteOrder
+                }
+                disabled={
+                  deleteLoading ||
+                  loading ||
+                  cancelLoading ||
+                  paymentLoading
+                }
+                className="mt-4 rounded-lg bg-red-700 px-4 py-2 font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleteLoading
+                  ? "Deleting..."
+                  : "🗑️ Permanently Delete Order"}
+              </button>
+
+              {deleteMessage && (
+                <div className="mt-3 rounded-lg bg-white p-3 text-sm">
+                  {deleteMessage}
                 </div>
               )}
 

@@ -4,6 +4,7 @@ import {
 } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 /*
 ==========================================
@@ -1444,6 +1445,37 @@ export async function POST(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request: req,
+      action: "create_investment",
+      module: "finance",
+      targetType: "investment",
+      targetId: String(batch.id),
+      description: `Investment ${batch.investment_name} was created.`,
+      metadata: {
+        investment_id: batch.id,
+        investment_code: batch.investment_code,
+        investment_name: batch.investment_name,
+        investment_date: batch.investment_date,
+        supplier: batch.supplier,
+        shipping_cost: batch.shipping_cost,
+        customs_cost: batch.customs_cost,
+        packaging_cost: batch.packaging_cost,
+        other_cost: batch.other_cost,
+        notes: batch.notes,
+        status: batch.status,
+        items: (createdItems || []).map((item: any) => ({
+          id: item.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_cost: item.unit_cost,
+          selling_price: item.selling_price,
+          sold_quantity: item.sold_quantity,
+        })),
+      },
+    });
+
     /*
     ========================================
     6. SUCCESS
@@ -1453,6 +1485,8 @@ export async function POST(
     return NextResponse.json(
       {
         success: true,
+
+        auditLogged,
 
         message:
           "Investment created successfully.",

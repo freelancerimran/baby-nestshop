@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { writeAuditLog } from "@/lib/audit";
 
 export async function GET() {
   try {
@@ -98,6 +99,25 @@ export async function POST(
       );
     }
 
+    const {
+      data: previousSettings,
+      error: previousSettingsError,
+    } = await supabase
+      .from("settings")
+      .select("*")
+      .eq("id", rowId)
+      .single();
+
+    if (previousSettingsError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: previousSettingsError.message,
+        },
+        { status: 500 }
+      );
+    }
+
     const { error } =
       await supabase
         .from("settings")
@@ -136,10 +156,39 @@ export async function POST(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "update_settings",
+      module: "settings",
+      targetType: "settings",
+      targetId: String(rowId),
+      description: "Site settings were updated.",
+      metadata: {
+        settings_id: rowId,
+        previous: previousSettings,
+        updated: {
+          site_name,
+          logo,
+          hero_title,
+          hero_subtitle,
+          hero_image,
+          hero_button_text,
+          hero_button_link,
+          phone,
+          email,
+          facebook,
+          instagram,
+          youtube,
+          whatsapp,
+        },
+      },
+    });
+
     return NextResponse.json({
       success: true,
       message:
         "Settings updated successfully",
+      auditLogged,
     });
 
   } catch (error) {

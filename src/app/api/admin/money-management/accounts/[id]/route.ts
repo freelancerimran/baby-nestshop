@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
@@ -230,6 +231,37 @@ export async function PATCH(
       );
     }
 
+    const { data: existingAccount, error: existingAccountError } =
+      await supabaseAdmin
+        .from("accounts")
+        .select(`
+          id,
+          name,
+          account_type,
+          ownership_type,
+          business_name,
+          opening_balance,
+          is_active,
+          notes,
+          account_scope,
+          created_at,
+          updated_at
+        `)
+        .eq("id", accountId)
+        .single();
+
+    if (existingAccountError || !existingAccount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            existingAccountError?.message ||
+            "Account not found.",
+        },
+        { status: 404 }
+      );
+    }
+
     const { data, error } =
       await supabaseAdmin
         .from("accounts")
@@ -276,6 +308,56 @@ export async function PATCH(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "update_account",
+      module: "finance",
+      targetType: "money_account",
+      targetId: data?.id ?? accountId,
+      description: `Updated money account "${data?.name ?? name}".`,
+      metadata: {
+        account_id: data?.id ?? accountId,
+        previous: {
+          name: existingAccount.name,
+          account_type:
+            existingAccount.account_type,
+          ownership_type:
+            existingAccount.ownership_type,
+          business_name:
+            existingAccount.business_name,
+          opening_balance:
+            numberValue(
+              existingAccount.opening_balance
+            ),
+          is_active:
+            existingAccount.is_active,
+          notes: existingAccount.notes,
+        },
+        updated: {
+          name: data?.name ?? name,
+          account_type:
+            data?.account_type ?? accountType,
+          ownership_type:
+            data?.ownership_type ?? ownershipType,
+          business_name:
+            data?.business_name ??
+            (ownershipType === "business"
+              ? businessName
+              : null),
+          opening_balance:
+            numberValue(
+              data?.opening_balance ??
+                openingBalance
+            ),
+          is_active:
+            data?.is_active ?? isActive,
+          notes:
+            data?.notes ??
+            (notes || null),
+        },
+      },
+    });
+
     return NextResponse.json({
       success: true,
       account: {
@@ -284,6 +366,7 @@ export async function PATCH(
           data.opening_balance
         ),
       },
+      auditLogged,
     });
   } catch (error) {
     console.error(
@@ -325,6 +408,35 @@ export async function DELETE(
           error: "Invalid account ID.",
         },
         { status: 400 }
+      );
+    }
+
+    const { data: existingAccount, error: existingAccountError } =
+      await supabaseAdmin
+        .from("accounts")
+        .select(`
+          id,
+          name,
+          account_type,
+          ownership_type,
+          business_name,
+          opening_balance,
+          is_active,
+          notes,
+          account_scope
+        `)
+        .eq("id", accountId)
+        .single();
+
+    if (existingAccountError || !existingAccount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            existingAccountError?.message ||
+            "Account not found.",
+        },
+        { status: 404 }
       );
     }
 
@@ -388,9 +500,25 @@ export async function DELETE(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request: _request,
+      action: "delete_account",
+      module: "finance",
+      targetType: "money_account",
+      targetId: String(accountId),
+      description: `Deleted money account "${existingAccount.name}".`,
+      metadata: {
+        account_id: accountId,
+        account: existingAccount,
+        transaction_count_before_delete:
+          count || 0,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       message: "Account deleted successfully.",
+      auditLogged,
     });
   } catch (error) {
     console.error(

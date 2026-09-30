@@ -7,6 +7,12 @@ import {
   supabaseAdmin,
 } from "@/lib/supabase-admin";
 
+import {
+  hasPermission,
+} from "@/lib/permissions";
+
+import { writeAuditLog } from "@/lib/audit";
+
 /*
 ============================================================
 CANCEL ORDER API
@@ -35,7 +41,40 @@ export async function POST(
   try {
     /*
     ========================================================
-    1. READ REQUEST
+    1. PERMISSION CHECK
+    ========================================================
+
+    Cancelling an order requires:
+
+    orders.cancel
+
+    Super Admin is automatically allowed
+    by the permission engine.
+    ========================================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "cancel"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            "You do not have permission to cancel orders.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================================
+    2. READ REQUEST
     ========================================================
     */
 
@@ -47,10 +86,9 @@ export async function POST(
         body?.orderId || ""
       ).trim();
 
-
     /*
     ========================================================
-    2. VALIDATION
+    3. VALIDATION
     ========================================================
     */
 
@@ -68,10 +106,29 @@ export async function POST(
       );
     }
 
+    /*
+    ========================================================
+    4. LOAD ORDER SNAPSHOT FOR AUDIT
+    ========================================================
+
+    This snapshot is only used for audit metadata.
+    The actual cancellation + stock restoration remains
+    fully atomic inside PostgreSQL.
+    ========================================================
+    */
+
+    const { data: orderSnapshot } =
+      await supabaseAdmin
+        .from("orders")
+        .select(
+          "order_id, customer_name, phone, status, courier_status, consignment_id, tracking_code, finance_processed, stock_restored, total"
+        )
+        .eq("order_id", orderId)
+        .maybeSingle();
 
     /*
     ========================================================
-    3. ATOMIC CANCEL + STOCK RESTORE
+    5. ATOMIC CANCEL + STOCK RESTORE
     ========================================================
 
     PostgreSQL handles:
@@ -99,10 +156,9 @@ export async function POST(
         }
       );
 
-
     /*
     ========================================================
-    4. DATABASE / RPC ERROR
+    6. DATABASE / RPC ERROR
     ========================================================
     */
 
@@ -116,7 +172,6 @@ export async function POST(
         String(
           error.message || ""
         );
-
 
       /*
       ======================================================
@@ -142,7 +197,6 @@ export async function POST(
         );
       }
 
-
       /*
       ======================================================
       COURIER SAFETY
@@ -166,7 +220,6 @@ export async function POST(
           }
         );
       }
-
 
       /*
       ======================================================
@@ -192,7 +245,6 @@ export async function POST(
         );
       }
 
-
       /*
       ======================================================
       PRODUCT NOT FOUND
@@ -216,7 +268,6 @@ export async function POST(
           }
         );
       }
-
 
       /*
       ======================================================
@@ -245,7 +296,6 @@ export async function POST(
         );
       }
 
-
       /*
       ======================================================
       PRODUCT ID MISSING
@@ -268,11 +318,10 @@ export async function POST(
               "A product linked to this order is missing. Cancellation was stopped for safety.",
           },
           {
-            status: 400,
+            status: 400
           }
         );
       }
-
 
       /*
       ======================================================
@@ -296,10 +345,9 @@ export async function POST(
       );
     }
 
-
     /*
     ========================================================
-    5. RESULT SAFETY
+    7. RESULT SAFETY
     ========================================================
     */
 
@@ -326,10 +374,9 @@ export async function POST(
       );
     }
 
-
     /*
     ========================================================
-    6. SUCCESS RESPONSE
+    8. AUDIT LOG + SUCCESS RESPONSE
     ========================================================
 
     Works for both:
@@ -342,6 +389,76 @@ export async function POST(
 
     The complete restored item list is returned so the
     frontend can display exactly what was restored.
+    ========================================================
+    */
+
+    /*
+    ========================================================
+    AUDIT LOG
+    ========================================================
+
+    Log only an actual cancellation mutation.
+    A repeated cancel request that was already cancelled
+    does not create a duplicate mutation audit.
+    ========================================================
+    */
+
+    let auditLogged = false;
+
+    if (!Boolean(data.alreadyCancelled)) {
+      auditLogged = await writeAuditLog({
+        request: req,
+        action: "cancel",
+        module: "orders",
+        targetType: "order",
+        targetId: orderId,
+        description:
+          `Order ${orderId} was cancelled and stock restoration was processed.`,
+        metadata: {
+          order_id: orderId,
+          customer_name:
+            orderSnapshot?.customer_name || null,
+          phone:
+            orderSnapshot?.phone || null,
+          previous_status:
+            orderSnapshot?.status || null,
+          previous_courier_status:
+            orderSnapshot?.courier_status || null,
+          consignment_id:
+            orderSnapshot?.consignment_id || null,
+          tracking_code:
+            orderSnapshot?.tracking_code || null,
+          finance_processed:
+            Boolean(orderSnapshot?.finance_processed),
+          stock_restored_before_cancel:
+            Boolean(orderSnapshot?.stock_restored),
+          total:
+            orderSnapshot?.total ?? null,
+          new_status:
+            data.status || "Cancelled",
+          stock_restored:
+            Boolean(data.stockRestored),
+          already_cancelled:
+            Boolean(data.alreadyCancelled),
+          already_restored:
+            Boolean(data.alreadyRestored),
+          restored_item_count:
+            Number(data.restoredItemCount || 0),
+          restored_quantity:
+            Number(data.restoredQuantity || 0),
+          restored_items:
+            Array.isArray(data.items)
+              ? data.items
+              : [],
+          rpc_result:
+            data,
+        },
+      });
+    }
+
+    /*
+    ========================================================
+    SUCCESS RESPONSE
     ========================================================
     */
 
@@ -391,6 +508,8 @@ export async function POST(
             ? data.items
             : [],
 
+        auditLogged,
+
         message:
           data.message ||
           "Order cancelled and stock restored successfully.",
@@ -399,7 +518,6 @@ export async function POST(
         status: 200,
       }
     );
-
   } catch (error) {
     /*
     ========================================================

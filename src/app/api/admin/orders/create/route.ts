@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasPermission } from "@/lib/permissions";
+import { writeAuditLog } from "@/lib/audit";
 
 function cleanText(value: unknown) {
   if (typeof value !== "string") {
@@ -19,6 +21,44 @@ export async function POST(
   request: NextRequest
 ) {
   try {
+    /*
+    ========================================
+    PERMISSION CHECK
+    ========================================
+
+    Creating an admin/internal order requires:
+
+    orders.create
+
+    Super Admin is automatically allowed
+    by the permission engine.
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "create"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "You do not have permission to create orders.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    READ REQUEST BODY
+    ========================================
+    */
+
     const body = await request.json();
 
     const orderId =
@@ -93,6 +133,12 @@ export async function POST(
         ? body.items
         : [];
 
+    /*
+    ========================================
+    BASIC VALIDATION
+    ========================================
+    */
+
     if (!customerName) {
       return NextResponse.json(
         {
@@ -149,8 +195,13 @@ export async function POST(
     }
 
     /*
-     * Normalize items for PostgreSQL function.
-     */
+    ========================================
+    NORMALIZE ITEMS
+    ========================================
+
+    Normalize items for PostgreSQL function.
+    ========================================
+    */
 
     const normalizedItems =
       items.map(
@@ -177,6 +228,27 @@ export async function POST(
                 value.productSlug
               ),
 
+            variantId:
+              value.variantId === null ||
+              value.variantId === undefined ||
+              value.variantId === ""
+                ? null
+                : Math.floor(
+                    numberValue(
+                      value.variantId
+                    )
+                  ),
+
+            variantName:
+              cleanText(
+                value.variantName
+              ) || null,
+
+            variantSku:
+              cleanText(
+                value.variantSku
+              ) || null,
+
             quantity: Math.floor(
               numberValue(
                 value.quantity
@@ -190,6 +262,12 @@ export async function POST(
           };
         }
       );
+
+    /*
+    ========================================
+    ITEM VALIDATION
+    ========================================
+    */
 
     for (const item of normalizedItems) {
       if (!item.productId) {
@@ -217,24 +295,45 @@ export async function POST(
           }
         );
       }
+
+      if (
+        item.variantId !== null &&
+        (!Number.isInteger(item.variantId) ||
+          item.variantId <= 0)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Invalid variant ID.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
     }
 
     /*
-     * Admin order RPC
-     *
-     * Facebook Pixel / CAPI is intentionally
-     * NOT used here.
-     *
-     * Admin orders are internal orders.
-     * The customer-facing website order flow
-     * remains responsible for browser/server tracking.
-     */
+    ========================================
+    ADMIN ORDER RPC
+    ========================================
+
+    Facebook Pixel / CAPI is intentionally
+    NOT used here.
+
+    Admin orders are internal orders.
+    The customer-facing website order flow
+    remains responsible for browser/server
+    tracking.
+    ========================================
+    */
 
     const {
       data,
       error,
     } = await supabaseAdmin.rpc(
-      "create_admin_order_with_stock",
+      "create_admin_order_with_stock_v2",
       {
         p_order_id:
           orderId,
@@ -289,6 +388,12 @@ export async function POST(
       }
     );
 
+    /*
+    ========================================
+    RPC ERROR
+    ========================================
+    */
+
     if (error) {
       console.error(
         "ADMIN ORDER CREATE RPC ERROR:",
@@ -306,16 +411,69 @@ export async function POST(
       );
     }
 
+    /*
+    ========================================
+    AUDIT LOG
+    ========================================
+    */
+
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "create",
+      module: "orders",
+      targetType: "order",
+      targetId: orderId,
+      description:
+        `Admin order created for ${customerName}.`,
+      metadata: {
+        order_id: orderId,
+        customer_name: customerName,
+        phone,
+        district,
+        delivery_area: deliveryArea,
+        item_count: normalizedItems.length,
+        items: normalizedItems.map((item: (typeof normalizedItems)[number]) => ({
+          product_id: item.productId,
+          product_name: item.productName,
+          variant_id: item.variantId,
+          variant_name: item.variantName,
+          variant_sku: item.variantSku,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+        })),
+        delivery_charge: deliveryCharge,
+        manual_discount: manualDiscount,
+        coupon_code: couponCode || null,
+        paid_amount: paidAmount,
+        payment_method: paymentMethod || null,
+        order_status: orderStatus,
+        created_by: createdBy,
+      },
+    });
+
+    /*
+    ========================================
+    SUCCESS
+    ========================================
+    */
+
     return NextResponse.json(
       {
         success: true,
         order: data,
+        auditLogged,
       },
       {
         status: 201,
       }
     );
   } catch (error) {
+    /*
+    ========================================
+    UNEXPECTED ERROR
+    ========================================
+    */
+
     console.error(
       "ADMIN ORDER CREATE UNEXPECTED ERROR:",
       error

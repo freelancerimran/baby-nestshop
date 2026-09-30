@@ -6,6 +6,12 @@ import {
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 import {
+  hasPermission,
+} from "@/lib/permissions";
+
+import { writeAuditLog } from "@/lib/audit";
+
+import {
   processDeliveredOrder,
 } from "@/lib/finance/process-delivered-order";
 
@@ -25,7 +31,37 @@ export async function POST(
   try {
     /*
     ========================================
-    GET ORDER ID
+    1. PERMISSION CHECK
+    ========================================
+
+    Updating a courier/order status requires:
+
+    orders.update_status
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "update_status"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            "You do not have permission to update order status.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    2. GET ORDER ID
     ========================================
     */
 
@@ -47,7 +83,7 @@ export async function POST(
 
     /*
     ========================================
-    GET ORDER
+    3. GET ORDER
     ========================================
     */
 
@@ -86,7 +122,7 @@ export async function POST(
 
     /*
     ========================================
-    CONSIGNMENT CHECK
+    4. CONSIGNMENT CHECK
     ========================================
     */
 
@@ -107,7 +143,7 @@ export async function POST(
 
     /*
     ========================================
-    GET STATUS FROM STEADFAST
+    5. GET STATUS FROM STEADFAST
     ========================================
     */
 
@@ -144,7 +180,7 @@ export async function POST(
 
     /*
     ========================================
-    STEADFAST RESPONSE CHECK
+    6. STEADFAST RESPONSE CHECK
     ========================================
     */
 
@@ -169,7 +205,7 @@ export async function POST(
 
     /*
     ========================================
-    COURIER STATUS
+    7. COURIER STATUS
     ========================================
     */
 
@@ -183,7 +219,7 @@ export async function POST(
 
     /*
     ========================================
-    ORDER STATUS MAPPING
+    8. ORDER STATUS MAPPING
     ========================================
     */
 
@@ -251,7 +287,7 @@ export async function POST(
 
     /*
     ========================================
-    UPDATE ORDER
+    9. UPDATE ORDER
     ========================================
 
     IMPORTANT:
@@ -304,7 +340,7 @@ export async function POST(
 
     /*
     ========================================
-    RESULT HOLDERS
+    10. RESULT HOLDERS
     ========================================
     */
 
@@ -324,7 +360,7 @@ export async function POST(
 
     /*
     ========================================
-    DELIVERED → FINANCE AUTOMATION
+    11. DELIVERED → FINANCE AUTOMATION
     ========================================
 
     Only CONFIRMED:
@@ -376,7 +412,7 @@ export async function POST(
 
     /*
     ========================================
-    CANCELLED → STOCK RESTORE
+    12. CANCELLED → STOCK RESTORE
     ========================================
 
     Only CONFIRMED:
@@ -447,7 +483,70 @@ export async function POST(
 
     /*
     ========================================
-    SUCCESS RESPONSE
+    13. AUDIT LOG
+    ========================================
+
+    The courier status has already been saved
+    successfully before this point.
+
+    Finance / inventory processing results are
+    included so the audit record shows what
+    downstream automation did (or failed to do).
+    ========================================
+    */
+
+    const auditLogged = await writeAuditLog({
+      request: req,
+      action: "update_courier_status",
+      module: "orders",
+      targetType: "order",
+      targetId: String(orderId),
+      description:
+        `Courier status for order ${orderId} was synchronized to "${courierStatus}".`,
+      metadata: {
+        order_id: String(orderId),
+
+        previous_courier_status:
+          order.courier_status ?? null,
+
+        new_courier_status:
+          courierStatus,
+
+        previous_order_status:
+          order.status ?? null,
+
+        new_order_status:
+          orderStatus,
+
+        consignment_id:
+          order.consignment_id ?? null,
+
+        tracking_code:
+          order.tracking_code ?? null,
+
+        courier_response_status:
+          result.status ?? null,
+
+        courier_response:
+          result,
+
+        finance_processed_before:
+          Boolean(order.finance_processed),
+
+        stock_restored_before:
+          Boolean(order.stock_restored),
+
+        finance_result:
+          financeResult,
+
+        stock_restore_result:
+          stockRestoreResult,
+      },
+    });
+
+    /*
+    ========================================
+    14. SUCCESS RESPONSE
     ========================================
     */
 
@@ -466,6 +565,8 @@ export async function POST(
 
       stockRestore:
         stockRestoreResult,
+
+      auditLogged,
     });
   } catch (error) {
     console.error(

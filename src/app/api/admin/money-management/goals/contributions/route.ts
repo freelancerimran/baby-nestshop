@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(
   value: unknown
@@ -515,6 +516,33 @@ export async function POST(
       goalId
     );
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "create_goal_contribution",
+      module: "finance",
+      targetType: "money_goal_contribution",
+      targetId: data?.id,
+      description:
+        `Created goal contribution for goal ${goalId}.`,
+      metadata: {
+        contribution_id: data?.id,
+        goal_id: goalId,
+        goal_name: goal?.name ?? null,
+        account_id: accountId,
+        amount: numberValue(
+          data?.amount ?? amount
+        ),
+        contribution_date:
+          data?.contribution_date ??
+          contributionDate,
+        note:
+          data?.note ?? (note || null),
+        transaction_id:
+          data?.transaction_id ??
+          transactionId,
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -527,6 +555,7 @@ export async function POST(
               data.amount
             ),
         },
+        auditLogged,
       },
       {
         status: 201,
@@ -889,6 +918,44 @@ export async function PUT(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "update_goal_contribution",
+      module: "finance",
+      targetType: "money_goal_contribution",
+      targetId:
+        data?.id ?? contributionId,
+      description:
+        `Updated goal contribution ${contributionId}.`,
+      metadata: {
+        contribution_id:
+          data?.id ?? contributionId,
+        previous: {
+          goal_id: existing.goal_id,
+          account_id: existing.account_id,
+          amount: numberValue(
+            existing.amount
+          ),
+        },
+        updated: {
+          goal_id:
+            data?.goal_id ?? goalId,
+          account_id:
+            data?.account_id ?? accountId,
+          amount: numberValue(
+            data?.amount ?? amount
+          ),
+          contribution_date:
+            data?.contribution_date ??
+            contributionDate,
+          note:
+            data?.note ?? (note || null),
+        },
+        old_goal_id: oldGoalId,
+        new_goal_id: goalId,
+      },
+    });
+
     return NextResponse.json({
       success: true,
 
@@ -900,6 +967,7 @@ export async function PUT(
             data.amount
           ),
       },
+      auditLogged,
     });
   } catch (error) {
     console.error(
@@ -974,7 +1042,13 @@ export async function DELETE(
         )
         .select(`
           id,
-          goal_id
+          goal_id,
+          account_id,
+          amount,
+          contribution_date,
+          note,
+          transaction_id,
+          created_at
         `)
         .eq(
           "id",
@@ -1046,12 +1120,29 @@ export async function DELETE(
       goalId
     );
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "delete_goal_contribution",
+      module: "finance",
+      targetType: "money_goal_contribution",
+      targetId: String(contributionId),
+      description:
+        `Deleted goal contribution ${contributionId}.`,
+      metadata: {
+        contribution_id:
+          contributionId,
+        contribution: existing,
+        goal_id: goalId,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       deleted_id:
         contributionId,
       goal_id:
         goalId,
+      auditLogged,
     });
   } catch (error) {
     console.error(

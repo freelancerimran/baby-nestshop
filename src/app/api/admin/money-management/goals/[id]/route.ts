@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
@@ -318,6 +319,43 @@ export async function PATCH(
 
 
     /*
+     * Get existing goal snapshot for audit.
+     */
+    const {
+      data: existingGoal,
+      error: existingGoalError,
+    } = await supabaseAdmin
+      .from("money_goals")
+      .select(`
+        id,
+        name,
+        description,
+        ownership_type,
+        target_amount,
+        monthly_target,
+        start_date,
+        target_date,
+        status,
+        notes,
+        created_at,
+        updated_at
+      `)
+      .eq("id", goalId)
+      .single();
+
+    if (existingGoalError || !existingGoal) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            existingGoalError?.message ||
+            "Goal not found.",
+        },
+        { status: 404 }
+      );
+    }
+
+    /*
      * Update
      */
 
@@ -378,6 +416,64 @@ export async function PATCH(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "update_goal",
+      module: "finance",
+      targetType: "money_goal",
+      targetId: data?.id ?? goalId,
+      description: `Updated money goal "${data?.name ?? name}".`,
+      metadata: {
+        goal_id: data?.id ?? goalId,
+        previous: {
+          name: existingGoal.name,
+          description: existingGoal.description,
+          ownership_type:
+            existingGoal.ownership_type,
+          target_amount:
+            numberValue(
+              existingGoal.target_amount
+            ),
+          monthly_target:
+            numberValue(
+              existingGoal.monthly_target
+            ),
+          start_date:
+            existingGoal.start_date,
+          target_date:
+            existingGoal.target_date,
+          status: existingGoal.status,
+          notes: existingGoal.notes,
+        },
+        updated: {
+          name: data?.name ?? name,
+          description:
+            data?.description ??
+            (description || null),
+          ownership_type:
+            data?.ownership_type ??
+            ownershipType,
+          target_amount:
+            numberValue(
+              data?.target_amount ??
+                targetAmount
+            ),
+          monthly_target:
+            numberValue(
+              data?.monthly_target ??
+                monthlyTarget
+            ),
+          start_date:
+            data?.start_date ?? startDate,
+          target_date:
+            data?.target_date ?? targetDate,
+          status: data?.status ?? status,
+          notes:
+            data?.notes ?? (notes || null),
+        },
+      },
+    });
+
     return NextResponse.json({
       success: true,
       goal: {
@@ -390,6 +486,7 @@ export async function PATCH(
             data.monthly_target
           ),
       },
+      auditLogged,
     });
   } catch (error) {
     console.error(
@@ -436,6 +533,38 @@ export async function DELETE(
       );
     }
 
+
+    const {
+      data: existingGoal,
+      error: existingGoalError,
+    } = await supabaseAdmin
+      .from("money_goals")
+      .select(`
+        id,
+        name,
+        description,
+        ownership_type,
+        target_amount,
+        monthly_target,
+        start_date,
+        target_date,
+        status,
+        notes
+      `)
+      .eq("id", goalId)
+      .single();
+
+    if (existingGoalError || !existingGoal) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            existingGoalError?.message ||
+            "Goal not found.",
+        },
+        { status: 404 }
+      );
+    }
 
     /*
      * Check contributions first.
@@ -506,10 +635,26 @@ export async function DELETE(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request: _request,
+      action: "delete_goal",
+      module: "finance",
+      targetType: "money_goal",
+      targetId: String(goalId),
+      description: `Deleted money goal "${existingGoal.name}".`,
+      metadata: {
+        goal_id: goalId,
+        goal: existingGoal,
+        contribution_count_before_delete:
+          count || 0,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       message:
         "Goal deleted successfully.",
+      auditLogged,
     });
   } catch (error) {
     console.error(

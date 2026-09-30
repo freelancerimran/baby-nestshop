@@ -7,9 +7,24 @@ import {
   supabaseAdmin,
 } from "@/lib/supabase-admin";
 
+import {
+  hasPermission,
+} from "@/lib/permissions";
+
+import { writeAuditLog } from "@/lib/audit";
+
 /*
 ==========================================
 UPDATE ORDER PAYMENT
+==========================================
+
+Required permission:
+
+orders.edit
+
+Payment update is treated as an order edit
+because there is currently no separate
+orders.update_payment permission.
 ==========================================
 */
 
@@ -19,7 +34,32 @@ export async function POST(
   try {
     /*
     ========================================
-    READ REQUEST
+    1. PERMISSION CHECK
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "edit"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            "You do not have permission to update order payment.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    2. READ REQUEST
     ========================================
     */
 
@@ -38,7 +78,7 @@ export async function POST(
 
     /*
     ========================================
-    BASIC VALIDATION
+    3. BASIC VALIDATION
     ========================================
     */
 
@@ -89,7 +129,7 @@ export async function POST(
 
     /*
     ========================================
-    GET CURRENT ORDER
+    4. GET CURRENT ORDER
     ========================================
     */
 
@@ -137,7 +177,7 @@ export async function POST(
 
     /*
     ========================================
-    COURIER SAFETY
+    5. COURIER SAFETY
     ========================================
 
     Once the consignment has been created,
@@ -165,7 +205,7 @@ export async function POST(
 
     /*
     ========================================
-    TOTAL
+    6. TOTAL
     ========================================
     */
 
@@ -192,7 +232,7 @@ export async function POST(
 
     /*
     ========================================
-    PAID AMOUNT SAFETY
+    7. PAID AMOUNT SAFETY
     ========================================
     */
 
@@ -214,7 +254,7 @@ export async function POST(
 
     /*
     ========================================
-    CALCULATE PAYMENT
+    8. CALCULATE PAYMENT
     ========================================
     */
 
@@ -246,7 +286,7 @@ export async function POST(
 
     /*
     ========================================
-    UPDATE ORDER
+    9. UPDATE ORDER
     ========================================
     */
 
@@ -305,7 +345,50 @@ export async function POST(
 
     /*
     ========================================
-    SUCCESS
+    10. AUDIT LOG
+    ========================================
+    */
+
+    const auditLogged = await writeAuditLog({
+      request: req,
+      action: "update_payment",
+      module: "orders",
+      targetType: "order",
+      targetId: orderId,
+      description:
+        `Payment information updated for order ${orderId}.`,
+      metadata: {
+        order_id: orderId,
+
+        previous_paid_amount:
+          Number(order.paid_amount || 0),
+
+        previous_due_amount:
+          Number(order.due_amount || 0),
+
+        previous_payment_status:
+          order.payment_status || null,
+
+        new_paid_amount:
+          Number(updatedOrder.paid_amount || 0),
+
+        new_due_amount:
+          Number(updatedOrder.due_amount || 0),
+
+        new_payment_status:
+          updatedOrder.payment_status || null,
+
+        order_total:
+          Number(updatedOrder.total || 0),
+
+        consignment_id:
+          order.consignment_id || null,
+      },
+    });
+
+    /*
+    ========================================
+    11. SUCCESS
     ========================================
     */
 
@@ -336,8 +419,16 @@ export async function POST(
       paymentStatus:
         updatedOrder
           .payment_status,
+
+      auditLogged,
     });
   } catch (error) {
+    /*
+    ========================================
+    UNEXPECTED ERROR
+    ========================================
+    */
+
     console.error(
       "UPDATE PAYMENT ERROR:",
       error

@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 import {
+  hasPermission,
+} from "@/lib/permissions";
+
+import { writeAuditLog } from "@/lib/audit";
+
+import {
   processDeliveredOrder,
 } from "@/lib/finance/process-delivered-order";
 
@@ -64,7 +70,37 @@ export async function POST() {
   try {
     /*
     ========================================
-    GET ALL ORDERS SENT TO COURIER
+    1. PERMISSION CHECK
+    ========================================
+
+    Bulk courier synchronization requires:
+
+    orders.sync_courier
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "sync_courier"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            "You do not have permission to sync courier statuses.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    2. GET ALL ORDERS SENT TO COURIER
     ========================================
     */
 
@@ -120,6 +156,7 @@ export async function POST() {
     let stockRestoreFailedCount = 0;
 
     let failedCount = 0;
+    let auditLoggedCount = 0;
 
     /*
     ========================================
@@ -223,28 +260,11 @@ export async function POST() {
         ====================================
         MAP COURIER STATUS → ORDER STATUS
         ====================================
-
-        IMPORTANT:
-
-        delivered_approval_pending is NOT
-        final financial delivery.
-
-        cancelled_approval_pending is NOT
-        final confirmed cancellation.
-
-        We wait for final courier status.
-        ====================================
         */
 
         let orderStatus =
           order.status ||
           "Processing";
-
-        /*
-        ------------------------------------
-        FINAL DELIVERED
-        ------------------------------------
-        */
 
         if (
           courierStatus ===
@@ -254,12 +274,6 @@ export async function POST() {
             "Delivered";
         }
 
-        /*
-        ------------------------------------
-        DELIVERY APPROVAL PENDING
-        ------------------------------------
-        */
-
         else if (
           courierStatus ===
           "delivered_approval_pending"
@@ -267,12 +281,6 @@ export async function POST() {
           orderStatus =
             "Processing";
         }
-
-        /*
-        ------------------------------------
-        PARTIAL DELIVERY
-        ------------------------------------
-        */
 
         else if (
           courierStatus ===
@@ -284,12 +292,6 @@ export async function POST() {
             "Partial Delivered";
         }
 
-        /*
-        ------------------------------------
-        FINAL CANCELLED
-        ------------------------------------
-        */
-
         else if (
           courierStatus ===
           "cancelled"
@@ -298,12 +300,6 @@ export async function POST() {
             "Cancelled";
         }
 
-        /*
-        ------------------------------------
-        CANCELLATION APPROVAL PENDING
-        ------------------------------------
-        */
-
         else if (
           courierStatus ===
           "cancelled_approval_pending"
@@ -311,12 +307,6 @@ export async function POST() {
           orderStatus =
             "Processing";
         }
-
-        /*
-        ------------------------------------
-        ACTIVE / PROCESSING COURIER STATES
-        ------------------------------------
-        */
 
         else if (
           courierStatus ===
@@ -355,27 +345,6 @@ export async function POST() {
         ====================================
         CONFIRMED DELIVERY → PAYMENT PAID
         ====================================
-
-        For current Baby Nest COD flow:
-
-        Steadfast confirmed delivered means
-        customer received the parcel and
-        COD was collected.
-
-        Therefore:
-
-        payment_status = Paid
-        paid_amount    = total
-        due_amount     = 0
-
-        IMPORTANT:
-
-        This represents CUSTOMER payment.
-
-        It does NOT necessarily mean
-        Steadfast has already settled the
-        money to the business bank/account.
-        ====================================
         */
 
         if (
@@ -400,14 +369,6 @@ export async function POST() {
         /*
         ====================================
         UPDATE ORDER DATABASE
-        ====================================
-
-        courier_status is saved BEFORE
-        Finance / Inventory processing.
-
-        This is required because both
-        processors validate the current
-        database state.
         ====================================
         */
 
@@ -444,33 +405,18 @@ export async function POST() {
 
         updatedCount++;
 
+        let financeResult:
+          Awaited<ReturnType<typeof processDeliveredOrder>> | null =
+          null;
+
+        let stockRestoreResult:
+          Awaited<ReturnType<typeof processCancelledOrder>> | null =
+          null;
+
         /*
         ====================================
         CONFIRMED DELIVERED
         → FINANCE AUTOMATION
-        ====================================
-
-        Only exact:
-
-        courier_status = delivered
-
-        triggers Finance.
-
-        Finance PostgreSQL RPC handles:
-
-        - delivered validation
-        - duplicate protection
-        - FIFO investment allocation
-        - sold_quantity update
-        - Finance ledger creation
-        - product COGS
-        - allocated extra cost
-        - landed cost
-        - product revenue
-        - gross profit
-        - finance_processed
-        - finance_processed_at
-        - transaction safety
         ====================================
         */
 
@@ -481,7 +427,7 @@ export async function POST() {
           deliveredCount++;
 
           try {
-            const financeResult =
+            financeResult =
               await processDeliveredOrder(
                 String(
                   order.order_id
@@ -499,12 +445,6 @@ export async function POST() {
               }
             );
 
-            /*
-            --------------------------------
-            ALREADY PROCESSED
-            --------------------------------
-            */
-
             if (
               financeResult.success &&
               financeResult.skipped
@@ -512,23 +452,11 @@ export async function POST() {
               financeSkippedCount++;
             }
 
-            /*
-            --------------------------------
-            NEWLY PROCESSED
-            --------------------------------
-            */
-
             else if (
               financeResult.success
             ) {
               financeProcessedCount++;
             }
-
-            /*
-            --------------------------------
-            FINANCE FAILURE
-            --------------------------------
-            */
 
             else {
               financeFailedCount++;
@@ -567,26 +495,6 @@ export async function POST() {
         CONFIRMED CANCELLED
         → WEBSITE STOCK RESTORATION
         ====================================
-
-        Only exact:
-
-        courier_status = cancelled
-
-        restores website product stock.
-
-        PostgreSQL RPC handles:
-
-        - confirmed cancelled validation
-        - duplicate protection
-        - order locking
-        - product locking
-        - real_stock restoration
-        - display_stock restoration
-        - product status restoration
-        - stock_restored flag
-        - stock_restored_at
-        - transaction safety
-        ====================================
         */
 
         if (
@@ -596,7 +504,7 @@ export async function POST() {
           cancelledCount++;
 
           try {
-            const stockResult =
+            stockRestoreResult =
               await processCancelledOrder(
                 String(
                   order.order_id
@@ -610,40 +518,22 @@ export async function POST() {
                   order.order_id,
 
                 result:
-                  stockResult,
+                  stockRestoreResult,
               }
             );
 
-            /*
-            --------------------------------
-            ALREADY RESTORED
-            --------------------------------
-            */
-
             if (
-              stockResult.success &&
-              stockResult.skipped
+              stockRestoreResult.success &&
+              stockRestoreResult.skipped
             ) {
               stockRestoreSkippedCount++;
             }
 
-            /*
-            --------------------------------
-            NEWLY RESTORED
-            --------------------------------
-            */
-
             else if (
-              stockResult.success
+              stockRestoreResult.success
             ) {
               stockRestoredCount++;
             }
-
-            /*
-            --------------------------------
-            STOCK RESTORE FAILURE
-            --------------------------------
-            */
 
             else {
               stockRestoreFailedCount++;
@@ -655,7 +545,7 @@ export async function POST() {
                     order.order_id,
 
                   result:
-                    stockResult,
+                    stockRestoreResult,
                 }
               );
             }
@@ -673,6 +563,104 @@ export async function POST() {
                 error:
                   stockError,
               }
+            );
+          }
+        }
+
+        /*
+        ====================================
+        AUDIT COURIER STATUS MUTATION
+        ====================================
+        */
+
+        const statusChanged =
+          String(order.courier_status || "")
+            .trim()
+            .toLowerCase() !== courierStatus ||
+          String(order.status || "")
+            .trim() !== orderStatus;
+
+        const paymentChanged =
+          String(order.payment_status || "")
+            .trim() !==
+            String(
+              orderUpdate.payment_status ??
+                order.payment_status ??
+                ""
+            ).trim() ||
+          Number(order.paid_amount ?? 0) !==
+            Number(
+              orderUpdate.paid_amount ??
+                order.paid_amount ??
+                0
+            ) ||
+          Number(order.due_amount ?? 0) !==
+            Number(
+              orderUpdate.due_amount ??
+                order.due_amount ??
+                0
+            );
+
+        const mutationChanged =
+          statusChanged || paymentChanged;
+
+        if (mutationChanged) {
+          const auditLogged = await writeAuditLog({
+            action: "sync_courier_status",
+            module: "orders",
+            targetType: "order",
+            targetId: String(order.order_id),
+            description:
+              `Courier status synced for order ${order.order_id}.`,
+            metadata: {
+              order_id: order.order_id,
+              consignment_id:
+                order.consignment_id ?? null,
+              tracking_code:
+                order.tracking_code ?? null,
+              previous_courier_status:
+                order.courier_status ?? null,
+              new_courier_status:
+                courierStatus,
+              previous_order_status:
+                order.status ?? null,
+              new_order_status:
+                orderStatus,
+              previous_payment_status:
+                order.payment_status ?? null,
+              new_payment_status:
+                orderUpdate.payment_status ??
+                order.payment_status ??
+                null,
+              previous_paid_amount:
+                Number(order.paid_amount ?? 0),
+              new_paid_amount:
+                Number(
+                  orderUpdate.paid_amount ??
+                  order.paid_amount ??
+                  0
+                ),
+              previous_due_amount:
+                Number(order.due_amount ?? 0),
+              new_due_amount:
+                Number(
+                  orderUpdate.due_amount ??
+                  order.due_amount ??
+                  0
+                ),
+              finance_result:
+                financeResult,
+              stock_restore_result:
+                stockRestoreResult,
+            },
+          });
+
+          if (auditLogged) {
+            auditLoggedCount++;
+          } else {
+            console.warn(
+              "COURIER STATUS AUDIT LOG FAILED:",
+              order.order_id
             );
           }
         }
@@ -704,12 +692,6 @@ export async function POST() {
       message:
         "Courier statuses synced successfully.",
 
-      /*
-      ======================================
-      GENERAL
-      ======================================
-      */
-
       totalOrders:
         orders?.length || 0,
 
@@ -717,11 +699,7 @@ export async function POST() {
 
       failedCount,
 
-      /*
-      ======================================
-      DELIVERED / FINANCE
-      ======================================
-      */
+      auditLoggedCount,
 
       deliveredCount,
 
@@ -730,12 +708,6 @@ export async function POST() {
       financeSkippedCount,
 
       financeFailedCount,
-
-      /*
-      ======================================
-      CANCELLED / INVENTORY
-      ======================================
-      */
 
       cancelledCount,
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
+import { writeAuditLog } from "@/lib/audit";
 
 /*
 ============================================================
@@ -343,11 +344,35 @@ export async function POST(request: NextRequest) {
     ========================================================
     */
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "create",
+      module: "coupons",
+      targetType: "coupon",
+      targetId: String(coupon.id),
+      description: `Created coupon "${coupon.code}".`,
+      metadata: {
+        coupon_id: coupon.id,
+        code: coupon.code,
+        discount_type: coupon.discount_type,
+        discount_value: coupon.discount_value,
+        is_active: coupon.is_active,
+        starts_at: coupon.starts_at,
+        expires_at: coupon.expires_at,
+        usage_limit: coupon.usage_limit,
+        used_count: coupon.used_count,
+        minimum_order_amount: coupon.minimum_order_amount,
+        product_ids: cleanProductIds,
+        product_targeting: cleanProductIds.length > 0 ? "specific_products" : "all_products",
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
         coupon,
         message: "Coupon created successfully",
+        auditLogged,
       },
       { status: 201 }
     );

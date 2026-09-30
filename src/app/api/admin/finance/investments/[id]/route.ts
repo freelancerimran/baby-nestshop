@@ -4,6 +4,7 @@ import {
 } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 /*
 ==================================================
@@ -592,6 +593,29 @@ export async function PUT(
       existingBatch.investment_items ||
       [];
 
+    const previousInvestmentSnapshot = {
+      id: existingBatch.id,
+      investment_code: existingBatch.investment_code,
+      investment_name: existingBatch.investment_name,
+      investment_date: existingBatch.investment_date,
+      supplier: existingBatch.supplier,
+      shipping_cost: existingBatch.shipping_cost,
+      customs_cost: existingBatch.customs_cost,
+      packaging_cost: existingBatch.packaging_cost,
+      other_cost: existingBatch.other_cost,
+      notes: existingBatch.notes,
+      status: existingBatch.status,
+      items: existingItems.map((item: any) => ({
+        id: item.id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_cost: item.unit_cost,
+        selling_price: item.selling_price,
+        sold_quantity: item.sold_quantity,
+      })),
+    };
+
     /*
     ================================================
     SALES SAFETY VALIDATION
@@ -1068,11 +1092,50 @@ export async function PUT(
     ================================================
     */
 
+    const auditLogged = await writeAuditLog({
+      request: req,
+      action: "update_investment",
+      module: "finance",
+      targetType: "investment",
+      targetId: String(id),
+      description: `Investment ${finalBatch.investment_name} was updated.`,
+      metadata: {
+        investment_id: finalBatch.id,
+        investment_code: finalBatch.investment_code,
+        investment_name: finalBatch.investment_name,
+        previous: previousInvestmentSnapshot,
+        updated: {
+          id: finalBatch.id,
+          investment_code: finalBatch.investment_code,
+          investment_name: finalBatch.investment_name,
+          investment_date: finalBatch.investment_date,
+          supplier: finalBatch.supplier,
+          shipping_cost: finalBatch.shipping_cost,
+          customs_cost: finalBatch.customs_cost,
+          packaging_cost: finalBatch.packaging_cost,
+          other_cost: finalBatch.other_cost,
+          notes: finalBatch.notes,
+          status: finalBatch.status,
+          items: finalItems.map((item: any) => ({
+            id: item.id,
+            product_id: item.product_id,
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit_cost: item.unit_cost,
+            selling_price: item.selling_price,
+            sold_quantity: item.sold_quantity,
+          })),
+        },
+      },
+    });
+
     return NextResponse.json({
       success: true,
 
       message:
         "Investment updated successfully.",
+
+      auditLogged,
 
       investment: {
         id:
@@ -1299,6 +1362,18 @@ export async function DELETE(
       );
     }
 
+    const deletedInvestmentSnapshot = {
+      id: investment.id,
+      investment_code: investment.investment_code,
+      investment_name: investment.investment_name,
+      sold_units: soldUnits,
+      items: items.map((item: any) => ({
+        id: item.id,
+        product_name: item.product_name,
+        sold_quantity: item.sold_quantity,
+      })),
+    };
+
     /*
     ================================================
     DELETE INVESTMENT ITEMS FIRST
@@ -1357,11 +1432,29 @@ export async function DELETE(
     ================================================
     */
 
+    const auditLogged = await writeAuditLog({
+      request: _req,
+      action: "delete_investment",
+      module: "finance",
+      targetType: "investment",
+      targetId: String(id),
+      description: `Investment ${investment.investment_name} was permanently deleted.`,
+      metadata: {
+        investment_id: investment.id,
+        investment_code: investment.investment_code,
+        investment_name: investment.investment_name,
+        sold_units: soldUnits,
+        deleted_snapshot: deletedInvestmentSnapshot,
+      },
+    });
+
     return NextResponse.json({
       success: true,
 
       message:
         "Investment deleted successfully.",
+
+      auditLogged,
 
       deletedInvestment: {
         id: investment.id,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
@@ -624,6 +625,66 @@ export async function PATCH(
     }
 
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "update_transaction",
+      module: "finance",
+      targetType: "money_transaction",
+      targetId:
+        data?.id ?? transactionId,
+      description:
+        `Updated money transaction ${data?.id ?? transactionId}.`,
+      metadata: {
+        transaction_id:
+          data?.id ?? transactionId,
+        previous: {
+          id: existingTransaction.id,
+          goal_id:
+            existingTransaction.goal_id,
+          transaction_type:
+            existingTransaction.transaction_type,
+        },
+        updated: {
+          account_id:
+            data?.account_id ?? accountId,
+          transaction_type:
+            data?.transaction_type ??
+            transactionType,
+          ownership_type:
+            data?.ownership_type ??
+            ownershipType,
+          category_id:
+            data?.category_id ??
+            categoryId,
+          amount: numberValue(
+            data?.amount ?? amount
+          ),
+          transaction_date:
+            data?.transaction_date ??
+            transactionDate,
+          description:
+            data?.description ??
+            (description || null),
+          reference:
+            data?.reference ??
+            (reference || null),
+          related_account_id:
+            data?.related_account_id ??
+            (transactionType === "transfer"
+              ? relatedAccountId
+              : null),
+          goal_id:
+            data?.goal_id ?? goalId,
+        },
+        old_goal_id:
+          existingTransaction.goal_id,
+        new_goal_id: goalId,
+        goal_contribution_recreated:
+          goalId !== null &&
+          transactionType === "income",
+      },
+    });
+
     return NextResponse.json({
       success: true,
       transaction: {
@@ -678,6 +739,41 @@ export async function DELETE(
       );
     }
 
+
+    const {
+      data: existingTransaction,
+      error: existingTransactionError,
+    } = await supabaseAdmin
+      .from("transactions")
+      .select(`
+        id,
+        account_id,
+        transaction_type,
+        ownership_type,
+        category_id,
+        amount,
+        transaction_date,
+        description,
+        reference,
+        related_account_id,
+        goal_id,
+        created_at,
+        updated_at
+      `)
+      .eq("id", transactionId)
+      .single();
+
+    if (existingTransactionError || !existingTransaction) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            existingTransactionError?.message ||
+            "Transaction not found.",
+        },
+        { status: 404 }
+      );
+    }
 
     /*
      * Remove linked goal contribution first.
@@ -744,10 +840,27 @@ export async function DELETE(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request: _request,
+      action: "delete_transaction",
+      module: "finance",
+      targetType: "money_transaction",
+      targetId: String(transactionId),
+      description:
+        `Deleted money transaction ${transactionId}.`,
+      metadata: {
+        transaction_id: transactionId,
+        transaction: existingTransaction,
+        linked_goal_contribution_removed:
+          existingTransaction.goal_id !== null,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       message:
         "Transaction deleted successfully.",
+      auditLogged,
     });
   } catch (error) {
     console.error(

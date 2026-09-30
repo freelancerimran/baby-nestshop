@@ -1,8 +1,42 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasPermission } from "@/lib/permissions";
 
 export async function GET() {
   try {
+    /*
+    ========================================
+    PERMISSION CHECK
+    ========================================
+
+    Order list/API access requires:
+
+    orders.view
+
+    Super Admin is automatically allowed
+    by the permission engine.
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "view"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          orders: [],
+          error:
+            "You do not have permission to view orders.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
     /*
     ========================================
     GET ALL ORDERS

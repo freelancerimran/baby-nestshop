@@ -1,21 +1,59 @@
 import InventoryTable from "@/components/admin/InventoryTable";
+import { headers } from "next/headers";
 
-async function getProducts() {
+async function getInventory() {
+  const requestHeaders = await headers();
+
+  const host =
+    requestHeaders.get("x-forwarded-host") ||
+    requestHeaders.get("host");
+
+  const protocol =
+    requestHeaders.get("x-forwarded-proto") ||
+    "http";
+
+  if (!host) {
+    throw new Error(
+      "Unable to determine application host."
+    );
+  }
+
+  const baseUrl = `${protocol}://${host}`;
+
   const response = await fetch(
-  `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/products`,
+    `${baseUrl}/api/admin/inventory`,
     {
       cache: "no-store",
+      headers: {
+        Cookie:
+          requestHeaders.get("cookie") || "",
+      },
     }
   );
 
-  const data = await response.json();
+  if (!response.ok) {
+    const errorText =
+      await response.text();
+
+    console.error(
+      "INVENTORY API ERROR:",
+      errorText
+    );
+
+    throw new Error(
+      `Failed to fetch inventory: ${response.status}`
+    );
+  }
+
+  const data =
+    await response.json();
 
   return data.products || [];
 }
 
 export default async function InventoryPage() {
   const products =
-    await getProducts();
+    await getInventory();
 
   return (
     <div className="p-6">

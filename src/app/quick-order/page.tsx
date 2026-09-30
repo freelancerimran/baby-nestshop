@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { districts } from "@/data/districts";
+import {
+  CartItem,
+  CartVariant,
+} from "@/types/cart";
 import { useQuickCart } from "@/lib/store/quick-cart";
 
 type AvailableCoupon = {
   id: number;
   code: string;
-  discountType: "fixed";
+  discountType: "fixed" | "percentage";
   discountValue: number;
   minimumOrderAmount: number;
   expiresAt: string | null;
@@ -18,24 +26,53 @@ type AvailableCoupon = {
   productName: string;
 };
 
+type VariantSelection = Record<
+  number,
+  Record<number, number>
+>;
+
+type OrderItemPayload = {
+  productId: number;
+  variantId: number | null;
+  quantity: number;
+};
+
+function money(value: number) {
+  return `৳${Number(value || 0).toLocaleString(
+    "en-BD"
+  )}`;
+}
+
+function getActiveVariants(
+  item: CartItem
+): CartVariant[] {
+  return (item.variants || []).filter(
+    (variant) =>
+      variant.status === "Active" &&
+      Number(variant.realStock) > 0
+  );
+}
+
 export default function QuickOrderPage() {
   const {
     items,
-    totalItems,
-    subtotal,
-    increaseQuantity,
-    decreaseQuantity,
-    removeItem,
     clearCart,
   } = useQuickCart();
 
   const router = useRouter();
 
-  /*
-  ============================================================
-  CUSTOMER INFORMATION
-  ============================================================
-  */
+  /* ============================================================
+     VARIANT SELECTION
+     ============================================================ */
+
+  const [
+    variantSelections,
+    setVariantSelections,
+  ] = useState<VariantSelection>({});
+
+  /* ============================================================
+     CUSTOMER
+     ============================================================ */
 
   const [customerName, setCustomerName] =
     useState("");
@@ -43,11 +80,15 @@ export default function QuickOrderPage() {
   const [phone, setPhone] =
     useState("");
 
+  const [district, setDistrict] =
+    useState("");
+
   const [address, setAddress] =
     useState("");
 
-  const [district, setDistrict] =
-    useState("");
+  /* ============================================================
+     DELIVERY
+     ============================================================ */
 
   const [deliveryArea, setDeliveryArea] =
     useState("dhaka");
@@ -55,23 +96,29 @@ export default function QuickOrderPage() {
   const [deliveryCharge, setDeliveryCharge] =
     useState(0);
 
-  /*
-  ============================================================
-  COUPON
-  ============================================================
-  */
+  /* ============================================================
+     COUPON
+     ============================================================ */
 
-  const [availableCoupons, setAvailableCoupons] =
-    useState<AvailableCoupon[]>([]);
+  const [
+    availableCoupons,
+    setAvailableCoupons,
+  ] = useState<AvailableCoupon[]>([]);
 
-  const [loadingCoupons, setLoadingCoupons] =
-    useState(false);
+  const [
+    loadingCoupons,
+    setLoadingCoupons,
+  ] = useState(false);
 
   const [couponCode, setCouponCode] =
     useState("");
 
-  const [appliedCoupon, setAppliedCoupon] =
-    useState<AvailableCoupon | null>(null);
+  const [
+    appliedCoupon,
+    setAppliedCoupon,
+  ] = useState<AvailableCoupon | null>(
+    null
+  );
 
   const [discount, setDiscount] =
     useState(0);
@@ -82,40 +129,322 @@ export default function QuickOrderPage() {
   const [couponError, setCouponError] =
     useState("");
 
-  const [isApplyingCoupon, setIsApplyingCoupon] =
-    useState(false);
+  const [
+    isApplyingCoupon,
+    setIsApplyingCoupon,
+  ] = useState(false);
 
-  /*
-  ============================================================
-  GENERAL STATE
-  ============================================================
-  */
+  /* ============================================================
+     GENERAL
+     ============================================================ */
 
   const [errorMessage, setErrorMessage] =
     useState("");
 
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
+  const [
+    isSubmitting,
+    setIsSubmitting,
+  ] = useState(false);
 
-  /*
-  ============================================================
-  GRAND TOTAL
-  ============================================================
-  */
+  /* ============================================================
+     CLASSIFY PRODUCTS
+     ============================================================ */
 
-  const grandTotal =
-    Math.max(
-      0,
-      subtotal +
-        deliveryCharge -
-        discount
+  const variantItems = useMemo(() => {
+    return items.filter(
+      (item) =>
+        getActiveVariants(item).length > 0
     );
+  }, [items]);
 
-  /*
-  ============================================================
-  DELIVERY CHARGE
-  ============================================================
-  */
+  const regularItems = useMemo(() => {
+    return items.filter(
+      (item) =>
+        getActiveVariants(item).length === 0
+    );
+  }, [items]);
+
+  /* ============================================================
+     SELECTED VARIANTS FOR PRODUCT UI
+
+     Keeps the presentation layer aligned with the
+     variant selection rules without changing the
+     order payload or stock logic.
+     ============================================================ */
+
+  const selectedOrderItemsForProduct = (
+    item: CartItem,
+    variants: CartVariant[],
+    selections: VariantSelection
+  ) => {
+    const productSelections =
+      selections[item.productId] || {};
+
+    return variants
+      .map((variant) => {
+        const quantity = Math.max(
+          0,
+          Number(
+            productSelections[variant.id] ||
+              0
+          )
+        );
+
+        if (quantity <= 0) {
+          return null;
+        }
+
+        const unitPrice =
+          variant.price !== null
+            ? Number(variant.price)
+            : Number(item.unitPrice || 0);
+
+        return {
+          variant,
+          quantity,
+          unitPrice,
+        };
+      })
+      .filter(
+        (entry): entry is {
+          variant: CartVariant;
+          quantity: number;
+          unitPrice: number;
+        } => entry !== null
+      );
+  };
+
+  /* ============================================================
+     SELECTED ORDER ITEMS
+
+     Variant product:
+       Product A
+         Variant 1 × 2
+         Variant 2 × 3
+
+     becomes:
+
+       [
+         {
+           productId: A,
+           variantId: 1,
+           quantity: 2
+         },
+         {
+           productId: A,
+           variantId: 2,
+           quantity: 3
+         }
+       ]
+
+     Normal product:
+
+       {
+         productId: B,
+         variantId: null,
+         quantity: 2
+       }
+     ============================================================ */
+
+  const selectedOrderItems =
+    useMemo<OrderItemPayload[]>(() => {
+      const result: OrderItemPayload[] =
+        [];
+
+      /* Normal products */
+      for (const item of regularItems) {
+        const quantity = Math.max(
+          0,
+          Number(item.quantity || 0)
+        );
+
+        if (quantity <= 0) {
+          continue;
+        }
+
+        result.push({
+          productId: Number(
+            item.productId
+          ),
+          variantId: null,
+          quantity,
+        });
+      }
+
+      /* Variant products */
+      for (const item of variantItems) {
+        const selections =
+          variantSelections[
+            item.productId
+          ] || {};
+
+        for (const variant of getActiveVariants(
+          item
+        )) {
+          const quantity = Math.max(
+            0,
+            Number(
+              selections[variant.id] || 0
+            )
+          );
+
+          if (quantity <= 0) {
+            continue;
+          }
+
+          result.push({
+            productId: Number(
+              item.productId
+            ),
+            variantId: Number(
+              variant.id
+            ),
+            quantity,
+          });
+        }
+      }
+
+      return result;
+    }, [
+      regularItems,
+      variantItems,
+      variantSelections,
+    ]);
+
+  /* ============================================================
+     TOTAL ITEMS
+     ============================================================ */
+
+  const totalItems = useMemo(() => {
+    return selectedOrderItems.reduce(
+      (sum, item) =>
+        sum + Number(item.quantity || 0),
+      0
+    );
+  }, [selectedOrderItems]);
+
+  /* ============================================================
+     SUBTOTAL
+
+     IMPORTANT:
+     Variant price comes from variant.price.
+     Normal product price comes from item.unitPrice.
+     ============================================================ */
+
+  const subtotal = useMemo(() => {
+    let total = 0;
+
+    /* Normal products */
+    for (const item of regularItems) {
+      total +=
+        Number(item.unitPrice || 0) *
+        Number(item.quantity || 0);
+    }
+
+    /* Variant products */
+    for (const item of variantItems) {
+      const selections =
+        variantSelections[
+          item.productId
+        ] || {};
+
+      for (const variant of getActiveVariants(
+        item
+      )) {
+        const quantity = Number(
+          selections[variant.id] || 0
+        );
+
+        if (quantity <= 0) {
+          continue;
+        }
+
+        const unitPrice =
+          variant.price !== null
+            ? Number(variant.price)
+            : Number(item.unitPrice || 0);
+
+        total +=
+          unitPrice * quantity;
+      }
+    }
+
+    return total;
+  }, [
+    regularItems,
+    variantItems,
+    variantSelections,
+  ]);
+
+  /* ============================================================
+     GRAND TOTAL
+     ============================================================ */
+
+  const grandTotal = Math.max(
+    0,
+    subtotal +
+      deliveryCharge -
+      discount
+  );
+
+  /* ============================================================
+     VARIANT SELECTION STATUS
+
+     IMPORTANT:
+     Warning is checked per product.
+
+     Product A missing selection
+       → warning under Product A
+
+     Product B selected correctly
+       → no warning under Product B
+     ============================================================ */
+
+  const productVariantErrors =
+    useMemo(() => {
+      const errors: Record<
+        number,
+        boolean
+      > = {};
+
+      for (const item of variantItems) {
+        const variants =
+          getActiveVariants(item);
+
+        const selections =
+          variantSelections[
+            item.productId
+          ] || {};
+
+        const hasSelection =
+          variants.some(
+            (variant) =>
+              Number(
+                selections[variant.id] || 0
+              ) > 0
+          );
+
+        errors[item.productId] =
+          !hasSelection;
+      }
+
+      return errors;
+    }, [
+      variantItems,
+      variantSelections,
+    ]);
+
+  const hasMissingVariantSelection =
+    Object.values(
+      productVariantErrors
+    ).some(Boolean);
+
+  /* ============================================================
+     DELIVERY CHARGE
+
+     Use highest delivery charge among
+     products in the cart.
+     ============================================================ */
 
   useEffect(() => {
     if (items.length === 0) {
@@ -123,159 +452,145 @@ export default function QuickOrderPage() {
       return;
     }
 
-    const highestCharge =
-      Math.max(
-        ...items.map((item) =>
-          deliveryArea === "dhaka"
-            ? Number(
-                item.deliveryInsideDhaka || 0
-              )
-            : Number(
-                item.deliveryOutsideDhaka || 0
-              )
-        )
+    const charges = items.map((item) => {
+      if (deliveryArea === "dhaka") {
+        return Number(
+          item.deliveryInsideDhaka || 0
+        );
+      }
+
+      return Number(
+        item.deliveryOutsideDhaka || 0
       );
+    });
 
     setDeliveryCharge(
-      highestCharge
+      Math.max(0, ...charges)
     );
   }, [
     items,
     deliveryArea,
   ]);
 
-  /*
-  ============================================================
-  LOAD AVAILABLE COUPONS
-  ============================================================
-
-  We check every cart product.
-
-  Only coupons allocated to products currently inside
-  the cart will be displayed.
-
-  ONE ORDER = ONE COUPON.
-  ============================================================
-  */
+  /* ============================================================
+     LOAD AVAILABLE COUPONS
+     ============================================================ */
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadCoupons = async () => {
-      if (items.length === 0) {
+    async function loadCoupons() {
+      if (
+        items.length === 0 ||
+        subtotal <= 0
+      ) {
         setAvailableCoupons([]);
         return;
       }
 
-      try {
-        setLoadingCoupons(true);
-        setCouponError("");
+      setLoadingCoupons(true);
 
-        const results: (
-          | AvailableCoupon
-          | null
-        )[] = await Promise.all(
-          items.map(
-            async (
-              item
-            ): Promise<AvailableCoupon | null> => {
-              try {
-                const params =
-                  new URLSearchParams({
+      try {
+        const results =
+          await Promise.all(
+            items.map(
+              async (
+                item
+              ): Promise<
+                AvailableCoupon | null
+              > => {
+                try {
+                  const params =
+                    new URLSearchParams({
+                      productId:
+                        String(
+                          item.productId
+                        ),
+                      subtotal:
+                        String(
+                          subtotal
+                        ),
+                    });
+
+                  const response =
+                    await fetch(
+                      `/api/coupon/available?${params.toString()}`,
+                      {
+                        cache:
+                          "no-store",
+                      }
+                    );
+
+                  if (
+                    !response.ok
+                  ) {
+                    return null;
+                  }
+
+                  const data =
+                    await response.json();
+
+                  if (
+                    !data?.success ||
+                    !data?.coupon
+                  ) {
+                    return null;
+                  }
+
+                  const coupon =
+                    data.coupon;
+
+                  return {
+                    id: Number(
+                      coupon.id
+                    ),
+
+                    code: String(
+                      coupon.code
+                    ),
+
+                    discountType:
+                      coupon.discountType ===
+                      "percentage"
+                        ? "percentage"
+                        : "fixed",
+
+                    discountValue:
+                      Number(
+                        coupon.discountValue ||
+                          0
+                      ),
+
+                    minimumOrderAmount:
+                      Number(
+                        coupon.minimumOrderAmount ||
+                          0
+                      ),
+
+                    expiresAt:
+                      coupon.expiresAt ||
+                      null,
+
                     productId:
                       String(
                         item.productId
                       ),
 
-                    subtotal:
-                      String(
-                        subtotal
-                      ),
-                  });
-
-                const response =
-                  await fetch(
-                    `/api/coupon/available?${params.toString()}`,
-                    {
-                      cache: "no-store",
-                    }
-                  );
-
-                if (!response.ok) {
+                    productName:
+                      item.productName,
+                  };
+                } catch {
                   return null;
                 }
-
-                const data =
-                  await response.json();
-
-                if (
-                  !data?.success ||
-                  !data?.coupon
-                ) {
-                  return null;
-                }
-
-                const coupon =
-                  data.coupon;
-
-                return {
-                  id: Number(
-                    coupon.id
-                  ),
-
-                  code: String(
-                    coupon.code
-                  ),
-
-                  discountType:
-                    coupon.discountType,
-
-                  discountValue:
-                    Number(
-                      coupon.discountValue ||
-                        0
-                    ),
-
-                  minimumOrderAmount:
-                    Number(
-                      coupon.minimumOrderAmount ||
-                        0
-                    ),
-
-                  expiresAt:
-                    coupon.expiresAt ||
-                    null,
-
-                  productId:
-                    String(
-                      item.productId
-                    ),
-
-                  productName:
-                    item.productName,
-                } satisfies AvailableCoupon;
-              } catch (error) {
-                console.error(
-                  "Coupon availability error:",
-                  error
-                );
-
-                return null;
               }
-            })
+            )
           );
 
         if (cancelled) {
           return;
         }
 
-        /*
-        --------------------------------------------------------
-        REMOVE NULL VALUES
-        --------------------------------------------------------
-        */
-
-        const validCoupons =
+        const valid =
           results.filter(
             (
               coupon
@@ -283,16 +598,10 @@ export default function QuickOrderPage() {
               coupon !== null
           );
 
-        /*
-        --------------------------------------------------------
-        DEDUPLICATE COUPONS
-        --------------------------------------------------------
-        */
-
-        const uniqueCoupons =
+        const unique =
           Array.from(
             new Map(
-              validCoupons.map(
+              valid.map(
                 (coupon) => [
                   coupon.code
                     .trim()
@@ -304,18 +613,13 @@ export default function QuickOrderPage() {
           );
 
         setAvailableCoupons(
-          uniqueCoupons
+          unique
         );
 
-        /*
-        --------------------------------------------------------
-        REMOVE APPLIED COUPON IF IT IS NO LONGER AVAILABLE
-        --------------------------------------------------------
-        */
-
+        /* Remove applied coupon if it is no longer available */
         if (
           appliedCoupon &&
-          !uniqueCoupons.some(
+          !unique.some(
             (coupon) =>
               coupon.code
                 .trim()
@@ -326,25 +630,16 @@ export default function QuickOrderPage() {
           )
         ) {
           setAppliedCoupon(null);
-          setDiscount(0);
           setCouponCode("");
+          setDiscount(0);
           setCouponMessage("");
-        }
-      } catch (error) {
-        console.error(
-          "Load coupons error:",
-          error
-        );
-
-        if (!cancelled) {
-          setAvailableCoupons([]);
         }
       } finally {
         if (!cancelled) {
           setLoadingCoupons(false);
         }
       }
-    };
+    }
 
     loadCoupons();
 
@@ -357,66 +652,148 @@ export default function QuickOrderPage() {
     appliedCoupon,
   ]);
 
-  /*
-  ============================================================
-  CLEAR COUPON IF CART CHANGES
-  ============================================================
-  */
+  /* ============================================================
+     SET VARIANT QUANTITY
+     ============================================================ */
 
-  useEffect(() => {
-    if (!appliedCoupon) {
-      return;
-    }
+  const setVariantQuantity = (
+    productId: number,
+    variant: CartVariant,
+    nextQuantity: number
+  ) => {
+    const maxStock = Math.max(
+      0,
+      Number(
+        variant.realStock || 0
+      )
+    );
 
-    const stillInCart =
-      items.some(
-        (item) =>
-          String(
-            item.productId
-          ) ===
-          String(
-            appliedCoupon.productId
-          )
-      );
+    const quantity = Math.max(
+      0,
+      Math.min(
+        maxStock,
+        Math.floor(
+          Number(nextQuantity || 0)
+        )
+      )
+    );
 
-    if (!stillInCart) {
-      setAppliedCoupon(null);
-      setDiscount(0);
-      setCouponCode("");
-      setCouponMessage("");
-    }
-  }, [
-    items,
-    appliedCoupon,
-  ]);
+    setVariantSelections(
+      (current) => {
+        const productSelections =
+          {
+            ...(current[
+              productId
+            ] || {}),
+          };
 
-  /*
-  ============================================================
-  APPLY COUPON
-  ============================================================
-  */
+        if (quantity <= 0) {
+          delete productSelections[
+            variant.id
+          ];
+        } else {
+          productSelections[
+            variant.id
+          ] = quantity;
+        }
+
+        return {
+          ...current,
+          [productId]:
+            productSelections,
+        };
+      }
+    );
+
+    /* Selection change invalidates coupon calculation */
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setDiscount(0);
+    setCouponMessage("");
+    setCouponError("");
+  };
+
+  /* ============================================================
+     NORMAL PRODUCT QUANTITY
+     ============================================================ */
+
+  const increaseRegularQuantity = (
+    productId: number
+  ) => {
+    useQuickCart
+      .getState()
+      .increaseQuantity(productId);
+
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setDiscount(0);
+    setCouponMessage("");
+    setCouponError("");
+  };
+
+  const decreaseRegularQuantity = (
+    productId: number
+  ) => {
+    useQuickCart
+      .getState()
+      .decreaseQuantity(productId);
+
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setDiscount(0);
+    setCouponMessage("");
+    setCouponError("");
+  };
+
+  /* ============================================================
+     REMOVE PRODUCT
+     ============================================================ */
+
+  const removeProduct = (
+    productId: number
+  ) => {
+    useQuickCart
+      .getState()
+      .removeItem(productId);
+
+    setVariantSelections(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        delete next[productId];
+
+        return next;
+      }
+    );
+
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setDiscount(0);
+    setCouponMessage("");
+    setCouponError("");
+  };
+
+  /* ============================================================
+     APPLY COUPON
+     ============================================================ */
 
   const applyCoupon = async (
-    selectedCode?: string
+    code = couponCode
   ) => {
     if (isApplyingCoupon) {
       return;
     }
 
-    const cleanCode = (
-      selectedCode ||
-      couponCode
-    )
-      .trim()
-      .toUpperCase();
+    const cleanCode =
+      code.trim().toUpperCase();
 
     if (!cleanCode) {
       setCouponError(
         "কুপন কোড লিখুন"
       );
-
       setCouponMessage("");
-
       return;
     }
 
@@ -433,44 +810,24 @@ export default function QuickOrderPage() {
       setCouponError(
         "এই কুপনটি আপনার বর্তমান কার্টের জন্য প্রযোজ্য নয়"
       );
-
       setCouponMessage("");
-
       return;
     }
-
-    /*
-    ============================================================
-    ONE ORDER = ONE COUPON
-    ============================================================
-    */
 
     setIsApplyingCoupon(true);
     setCouponError("");
     setCouponMessage("");
 
     try {
-      /*
-      ----------------------------------------------------------
-      SERVER VALIDATION
-      ----------------------------------------------------------
-
-      We use the product to which this coupon is allocated.
-      The server/database will perform the final validation.
-      ----------------------------------------------------------
-      */
-
       const response =
         await fetch(
           "/api/coupon/validate",
           {
             method: "POST",
-
             headers: {
               "Content-Type":
                 "application/json",
             },
-
             body: JSON.stringify({
               couponCode:
                 cleanCode,
@@ -478,8 +835,7 @@ export default function QuickOrderPage() {
               productId:
                 matchingCoupon.productId,
 
-              subtotal:
-                subtotal,
+              subtotal,
             }),
           }
         );
@@ -507,19 +863,10 @@ export default function QuickOrderPage() {
       const validatedDiscount =
         Math.min(
           Number(
-            result.discount ||
-              result.coupon
-                ?.discountValue ||
-              0
+            result.discount || 0
           ),
           subtotal
         );
-
-      /*
-      ----------------------------------------------------------
-      APPLY
-      ----------------------------------------------------------
-      */
 
       setAppliedCoupon(
         matchingCoupon
@@ -534,16 +881,15 @@ export default function QuickOrderPage() {
       );
 
       setCouponMessage(
-        `✓ ${matchingCoupon.code} কুপন প্রয়োগ হয়েছে — ৳${validatedDiscount} ছাড়`
+        `✓ ${
+          matchingCoupon.code
+        } — ${money(
+          validatedDiscount
+        )} ছাড়`
       );
 
       setCouponError("");
-    } catch (error) {
-      console.error(
-        "Apply coupon error:",
-        error
-      );
-
+    } catch {
       setDiscount(0);
       setAppliedCoupon(null);
 
@@ -551,17 +897,13 @@ export default function QuickOrderPage() {
         "কুপন যাচাই করতে সমস্যা হয়েছে"
       );
     } finally {
-      setIsApplyingCoupon(
-        false
-      );
+      setIsApplyingCoupon(false);
     }
   };
 
-  /*
-  ============================================================
-  REMOVE COUPON
-  ============================================================
-  */
+  /* ============================================================
+     REMOVE COUPON
+     ============================================================ */
 
   const removeCoupon = () => {
     setAppliedCoupon(null);
@@ -571,16 +913,30 @@ export default function QuickOrderPage() {
     setCouponError("");
   };
 
-  /*
-  ============================================================
-  FORM VALIDATION
-  ============================================================
-  */
+  /* ============================================================
+     FORM VALIDATION
+     ============================================================ */
 
   const validateForm = () => {
+    if (hasMissingVariantSelection) {
+      setErrorMessage(
+        "প্রতিটি variant product থেকে অন্তত একটি variant নির্বাচন করুন।"
+      );
+
+      return false;
+    }
+
     if (
-      !customerName.trim()
+      selectedOrderItems.length === 0
     ) {
+      setErrorMessage(
+        "অর্ডার করার জন্য অন্তত একটি product নির্বাচন করুন।"
+      );
+
+      return false;
+    }
+
+    if (!customerName.trim()) {
       setErrorMessage(
         "আপনার নাম লিখুন"
       );
@@ -608,9 +964,7 @@ export default function QuickOrderPage() {
       return false;
     }
 
-    if (
-      !address.trim()
-    ) {
+    if (!address.trim()) {
       setErrorMessage(
         "সম্পূর্ণ ঠিকানা লিখুন"
       );
@@ -623,106 +977,22 @@ export default function QuickOrderPage() {
     return true;
   };
 
-  /*
-  ============================================================
-  COMPLETE ORDER
-  ============================================================
-  */
+  /* ============================================================
+     COMPLETE ORDER
+     ============================================================ */
 
   const handleCompleteOrder =
     async () => {
-      if (!validateForm()) {
-        return;
-      }
-
       if (isSubmitting) {
         return;
       }
 
-      if (items.length === 0) {
-        setErrorMessage(
-          "আপনার কার্ট খালি"
-        );
-
+      if (!validateForm()) {
         return;
       }
 
       try {
         setIsSubmitting(true);
-
-        /*
-        ======================================================
-        FACEBOOK — INITIATE CHECKOUT
-        ======================================================
-        */
-
-        if (
-          typeof window !==
-            "undefined" &&
-          window.fbq
-        ) {
-          window.fbq(
-            "track",
-            "InitiateCheckout",
-            {
-              content_ids:
-                items.map(
-                  (item) =>
-                    String(
-                      item.productId
-                    )
-                ),
-
-              contents:
-                items.map(
-                  (item) => ({
-                    id:
-                      String(
-                        item.productId
-                      ),
-                    quantity:
-                      Number(
-                        item.quantity
-                      ),
-                  })
-                ),
-
-              content_name:
-                items
-                  .map(
-                    (item) =>
-                      item.productName
-                  )
-                  .join(", "),
-
-              content_type:
-                "product",
-
-              currency:
-                "BDT",
-
-              value:
-                grandTotal,
-
-              num_items:
-                totalItems,
-            }
-          );
-        }
-
-        /*
-        ======================================================
-        SEND CART TO API
-        ======================================================
-
-        IMPORTANT:
-
-        We still send the selected coupon code.
-
-        The DATABASE RPC calculates the real discount.
-        Client-side discount is NOT trusted by the database.
-        ======================================================
-        */
 
         const response =
           await fetch(
@@ -736,31 +1006,31 @@ export default function QuickOrderPage() {
               },
 
               body: JSON.stringify({
-                customerName,
-                phone,
+                customerName:
+                  customerName.trim(),
+
+                phone:
+                  phone.trim(),
+
                 district,
-                address,
+
+                address:
+                  address.trim(),
 
                 deliveryArea,
+
                 deliveryCharge,
 
                 couponCode:
                   appliedCoupon?.code ||
-                  couponCode.trim() ||
+                  couponCode
+                    .trim() ||
                   null,
 
                 /*
-                ------------------------------------------------
-                LEGACY FIELD
-                ------------------------------------------------
-
-                The database RPC now ignores client discount
-                and calculates the real discount itself.
-
-                We send 0 for safety.
-                ------------------------------------------------
-                */
-
+                 * Server/database calculates
+                 * the real discount.
+                 */
                 discount: 0,
 
                 subtotal,
@@ -768,7 +1038,8 @@ export default function QuickOrderPage() {
                 total:
                   grandTotal,
 
-                items,
+                items:
+                  selectedOrderItems,
               }),
             }
           );
@@ -776,207 +1047,64 @@ export default function QuickOrderPage() {
         const result =
           await response.json();
 
-        /*
-        ======================================================
-        API ERROR
-        ======================================================
-        */
-
         if (
           !response.ok ||
           !result.success
         ) {
-          alert(
+          setErrorMessage(
             result.message ||
               result.error ||
-              "Order Failed"
+              "Order failed."
           );
 
           return;
         }
-
-        /*
-        ======================================================
-        GET ORDER ID
-        ======================================================
-        */
 
         const orderId =
           String(
-            result.orderId ||
-              ""
+            result.orderId || ""
           ).trim();
 
         if (!orderId) {
-          console.error(
-            "ORDER ID MISSING:",
-            result
-          );
-
-          alert(
-            "Order created but Order ID was not returned."
+          setErrorMessage(
+            "Order তৈরি হয়েছে, কিন্তু Order ID পাওয়া যায়নি।"
           );
 
           return;
         }
 
-        /*
-        ======================================================
-        IMPORTANT:
-        USE SERVER CALCULATED VALUES
-        ======================================================
-        */
-
-        const serverGrandTotal =
-          Number(
-            result.grandTotal ??
-              result.total ??
-              grandTotal
-          );
-
-        const serverDiscount =
-          Number(
-            result.discount ??
-              discount
-          );
-
-        /*
-        ======================================================
-        FACEBOOK — PURCHASE
-        ======================================================
-
-        Browser eventID = orderId
-
-        Server CAPI event_id = same orderId
-        ======================================================
-        */
-
-        if (
-          typeof window !==
-            "undefined" &&
-          window.fbq
-        ) {
-          window.fbq(
-            "track",
-            "Purchase",
-            {
-              content_ids:
-                items.map(
-                  (item) =>
-                    String(
-                      item.productId
-                    )
-                ),
-
-              contents:
-                items.map(
-                  (item) => ({
-                    id:
-                      String(
-                        item.productId
-                      ),
-                    quantity:
-                      Number(
-                        item.quantity
-                      ),
-                  })
-                ),
-
-              content_name:
-                items
-                  .map(
-                    (item) =>
-                      item.productName
-                  )
-                  .join(", "),
-
-              content_type:
-                "product",
-
-              currency:
-                "BDT",
-
-              value:
-                serverGrandTotal,
-
-              num_items:
-                totalItems,
-
-              /*
-              Optional custom parameter.
-              This helps preserve coupon context.
-              */
-
-              coupon:
-                appliedCoupon?.code ||
-                couponCode.trim() ||
-                undefined,
-
-              discount:
-                serverDiscount,
-            },
-            {
-              eventID:
-                orderId,
-            }
-          );
-        }
-
-        /*
-        ======================================================
-        CLEAR CART
-        ======================================================
-        */
-
+        /* Clear cart ONLY after successful order */
         clearCart();
-
-        /*
-        ======================================================
-        REDIRECT
-        ======================================================
-        */
 
         router.replace(
           `/order-success?order=${encodeURIComponent(
             orderId
           )}`
         );
-      } catch (error) {
-        console.error(
-          "QUICK ORDER ERROR:",
-          error
-        );
-
-        alert(
+      } catch {
+        setErrorMessage(
           "Server Error"
         );
       } finally {
-        setIsSubmitting(
-          false
-        );
+        setIsSubmitting(false);
       }
     };
 
-  /*
-  ============================================================
-  EMPTY CART
-  ============================================================
-  */
+  /* ============================================================
+     EMPTY CART
+     ============================================================ */
 
-  if (
-    items.length === 0
-  ) {
+  if (items.length === 0) {
     return (
       <main className="min-h-screen bg-gray-50 py-10">
         <div className="mx-auto max-w-3xl px-5">
-
           <div className="rounded-3xl bg-white p-10 text-center shadow-lg">
 
             <div className="mb-5 text-6xl">
               🛒
             </div>
 
-            <h1 className="text-4xl font-bold">
+            <h1 className="text-3xl font-bold sm:text-4xl">
               আপনার কার্ট খালি
             </h1>
 
@@ -992,21 +1120,17 @@ export default function QuickOrderPage() {
             </Link>
 
           </div>
-
         </div>
       </main>
     );
   }
 
-  /*
-  ============================================================
-  PAGE
-  ============================================================
-  */
+  /* ============================================================
+     PAGE
+     ============================================================ */
 
   return (
     <main className="min-h-screen bg-gray-50 py-5 sm:py-10">
-
       <div className="mx-auto max-w-6xl px-3 sm:px-5">
 
         <h1 className="mb-5 text-2xl font-bold sm:mb-8 sm:text-4xl">
@@ -1016,26 +1140,39 @@ export default function QuickOrderPage() {
         <div className="grid gap-5 lg:grid-cols-[2fr_1fr] lg:gap-8">
 
           {/* ==================================================
-              LEFT SIDE — CART
+              CART PRODUCTS
           ================================================== */}
 
-          <div className="space-y-3 sm:space-y-5">
+          <div className="space-y-4">
 
-            {items.map(
-              (item) => (
-                <div
-                  key={
+            {items.map((item) => {
+              const variants =
+                getActiveVariants(item);
+
+              const isVariantProduct =
+                variants.length > 0;
+
+              const productHasError =
+                Boolean(
+                  productVariantErrors[
                     item.productId
-                  }
-                  className="rounded-2xl border bg-white p-3 shadow-sm sm:p-5"
+                  ]
+                );
+
+              return (
+                <div
+                  key={item.productId}
+                  className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5"
                 >
 
-                  <div className="flex items-center gap-3 sm:gap-5">
+                  {/* ==================================================
+                      PRODUCT HEADER
+                  ================================================== */}
+
+                  <div className="flex gap-3 sm:gap-4">
 
                     <img
-                      src={
-                        item.image
-                      }
+                      src={item.image}
                       alt={
                         item.productName
                       }
@@ -1044,151 +1181,424 @@ export default function QuickOrderPage() {
 
                     <div className="min-w-0 flex-1">
 
-                      <h2 className="line-clamp-2 text-base font-bold sm:text-xl">
+                      <h2 className="text-base font-bold sm:text-xl">
                         {
                           item.productName
                         }
                       </h2>
 
-                      <p className="mt-1 text-base font-semibold text-teal-700 sm:mt-2 sm:text-lg">
-                        ৳{" "}
-                        {
-                          item.unitPrice
-                        }
-                      </p>
+                      {!isVariantProduct && (
+                        <p className="mt-1 text-base font-semibold text-teal-700">
+                          {money(
+                            item.unitPrice
+                          )}
+                        </p>
+                      )}
 
-                      {/* Quantity */}
-
-                      <div className="mt-3 flex items-center gap-2 sm:mt-5 sm:gap-3">
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            decreaseQuantity(
-                              item.productId
-                            )
-                          }
-                          className="flex h-9 w-9 items-center justify-center rounded-xl border transition hover:bg-gray-100 sm:h-10 sm:w-10"
-                        >
-                          −
-                        </button>
-
-                        <div className="min-w-[30px] text-center font-bold sm:min-w-[40px] sm:text-lg">
-                          {
-                            item.quantity
-                          }
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            increaseQuantity(
-                              item.productId
-                            )
-                          }
-                          className="flex h-9 w-9 items-center justify-center rounded-xl border transition hover:bg-gray-100 sm:h-10 sm:w-10"
-                        >
-                          +
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeItem(
-                              item.productId
-                            )
-                          }
-                          className="ml-1 rounded-lg bg-red-50 px-2 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100 sm:ml-5 sm:px-3 sm:text-sm"
-                        >
-                          Remove
-                        </button>
-
-                      </div>
+                      {isVariantProduct && (
+                        <p className="mt-1 text-xs font-semibold text-gray-500">
+                          আপনার পছন্দের variant নির্বাচন করুন
+                        </p>
+                      )}
 
                     </div>
 
+                    <button
+                      type="button"
+                      onClick={() =>
+                        removeProduct(
+                          item.productId
+                        )
+                      }
+                      className="h-fit shrink-0 rounded-lg bg-red-50 px-2.5 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100"
+                    >
+                      Remove
+                    </button>
+
                   </div>
 
+                  {/* ==================================================
+                      VARIANT PRODUCT
+                  ================================================== */}
+
+                  {isVariantProduct ? (
+                    <div className="mt-4">
+
+                      {/* ==================================================
+                          VARIANT SELECTION
+
+                          Variant cards are selection-only.
+                          Quantity controls stay in the selected
+                          variants list below.
+                      ================================================== */}
+
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-bold text-gray-900 sm:text-base">
+                          ভ্যারিয়েশন নির্বাচন করুন
+                        </h3>
+
+                        <span className="shrink-0 text-[11px] font-medium text-gray-500">
+                          একাধিক সিলেক্ট করা যাবে
+                        </span>
+                      </div>
+
+                      <div className="flex gap-3 overflow-x-auto pb-2">
+
+                        {variants.map(
+                          (variant) => {
+                            const quantity =
+                              Number(
+                                variantSelections[
+                                  item.productId
+                                ]?.[
+                                  variant.id
+                                ] || 0
+                              );
+
+                            const isSelected =
+                              quantity > 0;
+
+                            return (
+                              <button
+                                key={
+                                  variant.id
+                                }
+                                type="button"
+                                onClick={() =>
+                                  setVariantQuantity(
+                                    item.productId,
+                                    variant,
+                                    isSelected
+                                      ? 0
+                                      : 1
+                                  )
+                                }
+                                className={`relative w-[112px] shrink-0 rounded-xl border bg-white p-2 text-left transition active:scale-[0.98] sm:w-[125px] ${
+                                  isSelected
+                                    ? "border-teal-500 bg-teal-50 ring-1 ring-teal-500"
+                                    : "border-gray-200 hover:border-teal-300"
+                                }`}
+                              >
+
+                                {/* IMAGE */}
+
+                                <div className="aspect-square overflow-hidden rounded-lg bg-gray-50">
+                                  {variant.image ||
+                                  item.image ? (
+                                    <img
+                                      src={
+                                        variant.image ||
+                                        item.image
+                                      }
+                                      alt={
+                                        variant.variantName
+                                      }
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full items-center justify-center text-xs text-gray-400">
+                                      No Image
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* SELECTED CHECK */}
+
+                                {isSelected && (
+                                  <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-xs font-bold text-white shadow-sm">
+                                    ✓
+                                  </span>
+                                )}
+
+                                {/* NAME */}
+
+                                <p className="mt-2 truncate text-xs font-bold text-gray-900">
+                                  {
+                                    variant.variantName
+                                  }
+                                </p>
+
+                              </button>
+                            );
+                          }
+                        )}
+
+                      </div>
+
+                      {/* ==================================================
+                          SELECTED VARIANTS
+                      ================================================== */}
+
+                      {selectedOrderItemsForProduct(
+                        item,
+                        variants,
+                        variantSelections
+                      ).length > 0 && (
+                        <div className="mt-3 rounded-xl border border-teal-100 bg-teal-50/50 p-3">
+
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <h4 className="text-sm font-bold text-gray-900">
+                              নির্বাচিত ভ্যারিয়েন্ট (
+                              {selectedOrderItemsForProduct(
+                                item,
+                                variants,
+                                variantSelections
+                              ).length}
+                              টি)
+                            </h4>
+                          </div>
+
+                          <div className="space-y-2">
+                            {selectedOrderItemsForProduct(
+                              item,
+                              variants,
+                              variantSelections
+                            ).map(
+                              ({
+                                variant,
+                                quantity,
+                                unitPrice,
+                              }) => (
+                                <div
+                                  key={
+                                    variant.id
+                                  }
+                                  className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-2.5"
+                                >
+
+                                  {/* CHECK + IMAGE */}
+                                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-gray-50">
+                                    {variant.image ||
+                                    item.image ? (
+                                      <img
+                                        src={
+                                          variant.image ||
+                                          item.image
+                                        }
+                                        alt={
+                                          variant.variantName
+                                        }
+                                        className="h-full w-full object-cover"
+                                        loading="lazy"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full items-center justify-center text-[9px] text-gray-400">
+                                        No Image
+                                      </div>
+                                    )}
+
+                                    <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-teal-600 text-[9px] font-bold text-white">
+                                      ✓
+                                    </span>
+                                  </div>
+
+                                  {/* NAME + PRICE */}
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
+                                      {
+                                        variant.variantName
+                                      }
+                                    </p>
+
+                                    <p className="mt-0.5 text-xs font-semibold text-teal-700">
+                                      {money(
+                                        unitPrice
+                                      )}
+                                    </p>
+                                  </div>
+
+                                  {/* QUANTITY */}
+                                  <div className="flex shrink-0 items-center overflow-hidden rounded-lg border bg-white">
+                                    <button
+                                      type="button"
+                                      aria-label={`Decrease ${variant.variantName} quantity`}
+                                      onClick={() =>
+                                        setVariantQuantity(
+                                          item.productId,
+                                          variant,
+                                          quantity -
+                                            1
+                                        )
+                                      }
+                                      className="flex h-8 w-8 items-center justify-center font-bold text-gray-700 transition hover:bg-gray-50"
+                                    >
+                                      −
+                                    </button>
+
+                                    <span className="flex h-8 min-w-9 items-center justify-center border-x bg-gray-50 px-2 text-sm font-bold text-gray-900">
+                                      {
+                                        quantity
+                                      }
+                                    </span>
+
+                                    <button
+                                      type="button"
+                                      aria-label={`Increase ${variant.variantName} quantity`}
+                                      onClick={() =>
+                                        setVariantQuantity(
+                                          item.productId,
+                                          variant,
+                                          quantity +
+                                            1
+                                        )
+                                      }
+                                      disabled={
+                                        quantity >=
+                                        Number(
+                                          variant.realStock ||
+                                            0
+                                        )
+                                      }
+                                      className="flex h-8 w-8 items-center justify-center font-bold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+
+                                  {/* REMOVE */}
+                                  <button
+                                    type="button"
+                                    aria-label={`Remove ${variant.variantName}`}
+                                    onClick={() =>
+                                      setVariantQuantity(
+                                        item.productId,
+                                        variant,
+                                        0
+                                      )
+                                    }
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-500 transition hover:bg-red-50"
+                                  >
+                                    🗑️
+                                  </button>
+
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* PRODUCT-SPECIFIC WARNING */}
+
+                      {productHasError && (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-700">
+                          ⚠️ এই প্রোডাক্টের জন্য অন্তত একটি variant নির্বাচন করুন।
+                        </div>
+                      )}
+
+                    </div>
+                  ) : (
+
+                    /* ==================================================
+                       NORMAL PRODUCT
+                    ================================================== */
+
+                    <div className="mt-4 flex items-center gap-3">
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          decreaseRegularQuantity(
+                            item.productId
+                          )
+                        }
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white text-lg font-bold transition hover:bg-gray-50"
+                      >
+                        −
+                      </button>
+
+                      <span className="min-w-8 text-center font-bold">
+                        {
+                          item.quantity
+                        }
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          increaseRegularQuantity(
+                            item.productId
+                          )
+                        }
+                        disabled={
+                          item.maxStock >
+                            0 &&
+                          item.quantity >=
+                            item.maxStock
+                        }
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white text-lg font-bold transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        +
+                      </button>
+
+                    </div>
+                  )}
+
                 </div>
-              )
-            )}
+              );
+            })}
 
           </div>
 
           {/* ==================================================
-              RIGHT SIDE — ORDER FORM
+              ORDER SUMMARY
           ================================================== */}
 
           <div className="h-fit rounded-2xl border bg-white p-4 shadow-sm sm:p-6 lg:sticky lg:top-24">
 
-            {/* ==================================================
-                FREE PALESTINE
-            ================================================== */}
-
-            <div className="mb-4 flex items-center justify-center gap-2 text-xs font-semibold text-gray-500 sm:mb-5 sm:text-sm">
+            <div className="mb-4 flex items-center justify-center gap-2 text-xs font-semibold text-gray-500">
               <span className="h-px flex-1 bg-gray-200" />
 
-              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                <span aria-hidden="true">🇵🇸</span>
-                <span>Free Palestine</span>
+              <span>
+                🇵🇸 Free Palestine
               </span>
 
               <span className="h-px flex-1 bg-gray-200" />
             </div>
 
-            <h2 className="mb-4 text-2xl font-bold sm:mb-6 sm:text-3xl">
+            <h2 className="mb-5 text-2xl font-bold">
               Order Summary
             </h2>
 
-            {/* ==================================================
-                BASIC SUMMARY
-            ================================================== */}
+            {/* BASIC SUMMARY */}
 
-            <div className="space-y-3">
+            <div className="space-y-3 text-sm">
 
-              <div className="flex items-center justify-between text-sm sm:text-base">
-
+              <div className="flex justify-between">
                 <span>
-                  Total Products
+                  Total Items
                 </span>
 
-                <span className="font-bold">
-                  {
-                    totalItems
-                  }
-                </span>
-
+                <strong>
+                  {totalItems}
+                </strong>
               </div>
 
-              <div className="flex items-center justify-between text-sm sm:text-base">
-
+              <div className="flex justify-between">
                 <span>
                   Subtotal
                 </span>
 
-                <span className="font-bold">
-                  ৳{" "}
-                  {
-                    subtotal
-                  }
-                </span>
-
+                <strong>
+                  {money(subtotal)}
+                </strong>
               </div>
 
             </div>
 
-            <hr className="my-4 sm:my-6" />
+            <hr className="my-5" />
 
             {/* ==================================================
-                COUPON — FIRST / HIGH VISIBILITY
+                COUPON
             ================================================== */}
 
-            <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-3 sm:p-4">
+            <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4">
 
               <div className="mb-3 flex items-center justify-between">
 
                 <div>
-                  <h3 className="text-base font-bold text-gray-900 sm:text-lg">
+                  <h3 className="font-bold">
                     🎟️ বিশেষ কুপন
                   </h3>
 
@@ -1211,15 +1621,12 @@ export default function QuickOrderPage() {
 
               </div>
 
-              {/* ==================================================
-                  AVAILABLE COUPONS
-              ================================================== */}
-
               {loadingCoupons ? (
                 <div className="rounded-xl bg-white p-3 text-center text-sm text-gray-500">
                   কুপন খোঁজা হচ্ছে...
                 </div>
-              ) : availableCoupons.length > 0 ? (
+              ) : availableCoupons.length >
+                0 ? (
                 <div className="space-y-2">
 
                   {availableCoupons.map(
@@ -1233,81 +1640,57 @@ export default function QuickOrderPage() {
                           .toUpperCase();
 
                       return (
-                        <div
+                        <button
                           key={
                             coupon.id
                           }
-                          className={`flex items-center justify-between gap-3 rounded-xl border bg-white p-3 ${
+                          type="button"
+                          onClick={() =>
+                            applyCoupon(
+                              coupon.code
+                            )
+                          }
+                          disabled={
+                            isApplyingCoupon ||
+                            isApplied
+                          }
+                          className={`w-full rounded-xl border bg-white p-3 text-left transition ${
                             isApplied
                               ? "border-teal-500 ring-1 ring-teal-500"
-                              : "border-gray-200"
-                          }`}
+                              : "border-gray-200 hover:border-teal-300"
+                          } disabled:cursor-not-allowed`}
                         >
 
-                          <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-3">
 
-                            <div className="flex items-center gap-2">
+                            <div className="min-w-0">
 
-                              <span className="truncate text-sm font-bold text-gray-900">
+                              <p className="truncate text-sm font-bold">
                                 {
                                   coupon.code
                                 }
-                              </span>
+                              </p>
 
-                              {isApplied && (
-                                <span className="shrink-0 rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-700">
-                                  Applied
-                                </span>
-                              )}
+                              <p className="mt-0.5 text-xs text-gray-500">
+                                {coupon.discountType ===
+                                "percentage"
+                                  ? `${coupon.discountValue}% ছাড়`
+                                  : `${money(
+                                      coupon.discountValue
+                                    )} টাকা ছাড়`}
+                              </p>
 
                             </div>
 
-                            <p className="mt-1 text-xs text-gray-500">
-                              ৳
-                              {
-                                coupon.discountValue
-                              }{" "}
-                              টাকা ছাড়
-                            </p>
-
-                            {coupon.minimumOrderAmount &&
-                              coupon.minimumOrderAmount >
-                                0 && (
-                                <p className="mt-0.5 text-[10px] text-gray-400">
-                                  মিনিমাম অর্ডার ৳
-                                  {
-                                    coupon.minimumOrderAmount
-                                  }
-                                </p>
-                              )}
+                            <span className="shrink-0 text-xs font-bold text-teal-700">
+                              {isApplied
+                                ? "Applied ✓"
+                                : "Apply"}
+                            </span>
 
                           </div>
 
-                          <button
-                            type="button"
-                            disabled={
-                              isApplied ||
-                              isApplyingCoupon
-                            }
-                            onClick={() =>
-                              applyCoupon(
-                                coupon.code
-                              )
-                            }
-                            className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition sm:px-4 ${
-                              isApplied
-                                ? "bg-teal-100 text-teal-700"
-                                : "bg-teal-600 text-white hover:bg-teal-700"
-                            } disabled:cursor-not-allowed`}
-                          >
-                            {isApplied
-                              ? "Applied ✓"
-                              : isApplyingCoupon
-                              ? "..."
-                              : "Apply Now"}
-                          </button>
-
-                        </div>
+                        </button>
                       );
                     }
                   )}
@@ -1319,22 +1702,19 @@ export default function QuickOrderPage() {
                 </div>
               )}
 
-              {/* ==================================================
-                  MANUAL COUPON
-              ================================================== */}
+              {/* MANUAL COUPON */}
 
               <div className="mt-3 flex gap-2">
 
                 <input
-                  type="text"
                   value={
                     couponCode
                   }
                   onChange={(
-                    e
+                    event
                   ) => {
                     setCouponCode(
-                      e.target.value
+                      event.target.value.toUpperCase()
                     );
 
                     if (
@@ -1346,18 +1726,18 @@ export default function QuickOrderPage() {
                     }
                   }}
                   onKeyDown={(
-                    e
+                    event
                   ) => {
                     if (
-                      e.key ===
+                      event.key ===
                       "Enter"
                     ) {
-                      e.preventDefault();
+                      event.preventDefault();
 
                       applyCoupon();
                     }
                   }}
-                  placeholder="কুপন কোড লিখুন"
+                  placeholder="Coupon code"
                   className="min-w-0 flex-1 rounded-xl border bg-white px-3 py-2.5 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 />
 
@@ -1380,37 +1760,124 @@ export default function QuickOrderPage() {
 
               {couponMessage && (
                 <p className="mt-2 text-xs font-semibold text-teal-700">
-                  {couponMessage}
+                  {
+                    couponMessage
+                  }
                 </p>
               )}
 
               {couponError && (
                 <p className="mt-2 text-xs font-semibold text-red-600">
-                  {couponError}
+                  {
+                    couponError
+                  }
                 </p>
               )}
 
             </div>
 
-            <hr className="my-4 sm:my-6" />
+            <hr className="my-5" />
+
+            {/* ==================================================
+                DELIVERY
+            ================================================== */}
+
+            <div className="space-y-3">
+
+              <h3 className="font-bold">
+                🚚 Delivery
+              </h3>
+
+              <div className="grid grid-cols-2 gap-2">
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeliveryArea(
+                      "dhaka"
+                    )
+                  }
+                  className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${
+                    deliveryArea ===
+                    "dhaka"
+                      ? "border-teal-500 bg-teal-50 text-teal-700"
+                      : "bg-white"
+                  }`}
+                >
+                  Inside Dhaka
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeliveryArea(
+                      "outside"
+                    )
+                  }
+                  className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${
+                    deliveryArea ===
+                    "outside"
+                      ? "border-teal-500 bg-teal-50 text-teal-700"
+                      : "bg-white"
+                  }`}
+                >
+                  Outside Dhaka
+                </button>
+
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span>
+                  Delivery Charge
+                </span>
+
+                <strong>
+                  {money(
+                    deliveryCharge
+                  )}
+                </strong>
+              </div>
+
+              {discount > 0 && (
+                <div className="flex justify-between text-sm font-semibold text-teal-700">
+                  <span>
+                    Discount
+                  </span>
+
+                  <strong>
+                    -{" "}
+                    {money(
+                      discount
+                    )}
+                  </strong>
+                </div>
+              )}
+
+              <div className="flex justify-between border-t pt-3 text-lg">
+                <strong>
+                  Grand Total
+                </strong>
+
+                <strong className="text-teal-700">
+                  {money(
+                    grandTotal
+                  )}
+                </strong>
+              </div>
+
+            </div>
+
+            <hr className="my-5" />
 
             {/* ==================================================
                 CUSTOMER INFORMATION
             ================================================== */}
 
-            <div className="space-y-3 sm:space-y-4">
+            <div className="space-y-3">
 
-              <h3 className="text-lg font-bold sm:text-xl">
+              <h3 className="font-bold">
                 Customer Information
               </h3>
-
-              {errorMessage && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                  {
-                    errorMessage
-                  }
-                </div>
-              )}
 
               <input
                 type="text"
@@ -1418,11 +1885,10 @@ export default function QuickOrderPage() {
                   customerName
                 }
                 onChange={(
-                  e
+                  event
                 ) =>
                   setCustomerName(
-                    e.target
-                      .value
+                    event.target.value
                   )
                 }
                 placeholder="আপনার নাম"
@@ -1431,32 +1897,34 @@ export default function QuickOrderPage() {
 
               <input
                 type="tel"
-                inputMode="numeric"
-                value={
-                  phone
-                }
+                value={phone}
                 onChange={(
-                  e
+                  event
                 ) =>
                   setPhone(
-                    e.target
-                      .value
+                    event.target.value
+                      .replace(
+                        /\D/g,
+                        ""
+                      )
+                      .slice(
+                        0,
+                        11
+                      )
                   )
                 }
-                placeholder="মোবাইল নম্বর"
+                placeholder="01XXXXXXXXX"
+                inputMode="numeric"
                 className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
 
               <select
-                value={
-                  district
-                }
+                value={district}
                 onChange={(
-                  e
+                  event
                 ) =>
                   setDistrict(
-                    e.target
-                      .value
+                    event.target.value
                   )
                 }
                 className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
@@ -1467,9 +1935,7 @@ export default function QuickOrderPage() {
                 </option>
 
                 {districts.map(
-                  (
-                    districtName
-                  ) => (
+                  (districtName) => (
                     <option
                       key={
                         districtName
@@ -1488,166 +1954,59 @@ export default function QuickOrderPage() {
               </select>
 
               <textarea
-                rows={2}
-                value={
-                  address
-                }
+                value={address}
                 onChange={(
-                  e
+                  event
                 ) =>
                   setAddress(
-                    e.target
-                      .value
+                    event.target.value
                   )
                 }
                 placeholder="সম্পূর্ণ ঠিকানা"
+                rows={4}
                 className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
 
-            </div>
-
-            <hr className="my-4 sm:my-6" />
-
-            {/* ==================================================
-                DELIVERY
-            ================================================== */}
-
-            <div className="space-y-3">
-
-              <label className="text-sm font-semibold text-gray-700">
-                ডেলিভারি
-              </label>
-
-              <select
-                value={
-                  deliveryArea
-                }
-                onChange={(
-                  e
-                ) =>
-                  setDeliveryArea(
-                    e.target
-                      .value
-                  )
-                }
-                className="w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-              >
-
-                <option value="dhaka">
-                  ঢাকার ভিতরে
-                </option>
-
-                <option value="outside">
-                  ঢাকার বাইরে
-                </option>
-
-              </select>
-
-            </div>
-
-            <hr className="my-4 sm:my-6" />
-
-            {/* ==================================================
-                FINAL TOTAL
-            ================================================== */}
-
-            <div className="space-y-3">
-
-              <div className="flex justify-between text-sm">
-
-                <span>
-                  Subtotal
-                </span>
-
-                <span>
-                  ৳{" "}
+              {errorMessage && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
                   {
-                    subtotal
+                    errorMessage
                   }
-                </span>
-
-              </div>
-
-              <div className="flex justify-between text-sm">
-
-                <span>
-                  Delivery
-                </span>
-
-                <span>
-                  ৳{" "}
-                  {
-                    deliveryCharge
-                  }
-                </span>
-
-              </div>
-
-              {discount > 0 && (
-                <div className="flex justify-between text-sm font-semibold text-teal-700">
-
-                  <span>
-                    Coupon Discount
-                  </span>
-
-                  <span>
-                    - ৳{" "}
-                    {
-                      discount
-                    }
-                  </span>
-
                 </div>
               )}
 
-              <div className="my-2 border-t" />
+              {/* ==================================================
+                  COMPLETE ORDER
+              ================================================== */}
 
-              <div className="flex justify-between text-xl font-bold sm:text-2xl">
+              <button
+                type="button"
+                onClick={
+                  handleCompleteOrder
+                }
+                disabled={
+                  isSubmitting ||
+                  hasMissingVariantSelection ||
+                  selectedOrderItems.length ===
+                    0
+                }
+                className="w-full rounded-xl bg-black py-3.5 font-bold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSubmitting
+                  ? "অর্ডার তৈরি হচ্ছে..."
+                  : "অর্ডার কনফার্ম করুন"}
+              </button>
 
-                <span>
-                  Grand Total
-                </span>
-
-                <span className="text-teal-700">
-                  ৳{" "}
-                  {
-                    grandTotal
-                  }
-                </span>
-
-              </div>
+              <p className="text-center text-[11px] text-gray-400">
+                Cash on Delivery • অর্ডার নিশ্চিত করতে উপরের তথ্যগুলো দিন
+              </p>
 
             </div>
-
-            {/* ==================================================
-                COMPLETE ORDER
-            ================================================== */}
-
-            <button
-              type="button"
-              onClick={
-                handleCompleteOrder
-              }
-              disabled={
-                isSubmitting
-              }
-              className="mt-5 w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white transition hover:bg-teal-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-gray-400 sm:mt-8 sm:py-4 sm:text-lg"
-            >
-              {isSubmitting
-                ? "অর্ডার পাঠানো হচ্ছে..."
-                : "অর্ডার কনফার্ম করুন"}
-            </button>
-
-            <p className="mt-2 text-center text-[11px] text-gray-400">
-              Cash on Delivery • অর্ডার নিশ্চিত করতে উপরের তথ্যগুলো দিন
-            </p>
 
           </div>
 
         </div>
-
       </div>
-
     </main>
   );
 }

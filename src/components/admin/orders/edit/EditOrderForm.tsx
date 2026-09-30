@@ -11,6 +11,26 @@ interface EditOrderItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+
+  variantId?: number | null;
+  variantName?: string | null;
+  variantSku?: string | null;
+
+  /** Quantity that belonged to this order when the editor opened. */
+  originalQuantity?: number;
+}
+
+interface ProductVariant {
+  id: number;
+  productId: string;
+  variantName: string;
+  sku?: string | null;
+  price?: number | null;
+  realStock?: number | null;
+  displayStock?: number | null;
+  image?: string | null;
+  status?: string | null;
+  sortOrder?: number | null;
 }
 
 interface EditOrderData {
@@ -62,7 +82,92 @@ interface Product {
   featured?: boolean;
   bestSeller?: boolean;
   newArrival?: boolean;
+
+  hasVariants?: boolean | null;
+  variants?: ProductVariant[] | null;
 }
+
+const getOrderItemKey = (
+  productId: string,
+  variantId?: number | null
+) =>
+  `${String(productId).trim()}::${
+    variantId == null ? "product" : String(variantId)
+  }`;
+
+const normalizeOrderItems = (
+  source: any[]
+): EditOrderItem[] => {
+  const map = new Map<string, EditOrderItem>();
+
+  for (const raw of source || []) {
+    const productId = String(
+      raw?.productId ?? raw?.product_id ?? ""
+    ).trim();
+
+    if (!productId) continue;
+
+    const variantId =
+      raw?.variantId != null
+        ? Number(raw.variantId)
+        : raw?.variant_id != null
+          ? Number(raw.variant_id)
+          : null;
+
+    const quantity = Math.max(
+      1,
+      Number(raw?.quantity ?? 1) || 1
+    );
+
+    const unitPrice = Math.max(
+      0,
+      Number(
+        raw?.unitPrice ?? raw?.unit_price ?? 0
+      ) || 0
+    );
+
+    const key = getOrderItemKey(
+      productId,
+      variantId
+    );
+
+    const existing = map.get(key);
+
+    if (existing) {
+      existing.quantity += quantity;
+      existing.originalQuantity =
+        Number(existing.originalQuantity ?? 0) +
+        quantity;
+      existing.lineTotal =
+        Number(existing.unitPrice || 0) *
+        existing.quantity;
+      continue;
+    }
+
+    map.set(key, {
+      productId,
+      productName:
+        raw?.productName ??
+        raw?.product_name ??
+        "",
+      quantity,
+      unitPrice,
+      lineTotal: unitPrice * quantity,
+      variantId,
+      variantName:
+        raw?.variantName ??
+        raw?.variant_name ??
+        null,
+      variantSku:
+        raw?.variantSku ??
+        raw?.variant_sku ??
+        null,
+      originalQuantity: quantity,
+    });
+  }
+
+  return Array.from(map.values());
+};
 
 interface Props {
   order: EditOrderData;
@@ -123,47 +228,11 @@ export default function EditOrderForm({
   */
 
   const initialItems: EditOrderItem[] =
-    Array.isArray(order.items)
-      ? order.items.map(
-          (item) => ({
-            productId:
-              String(
-                item.productId || ""
-              ),
-
-            productName:
-              item.productName ||
-              "",
-
-            quantity:
-              Math.max(
-                1,
-                Number(
-                  item.quantity || 1
-                )
-              ),
-
-            unitPrice:
-              Math.max(
-                0,
-                Number(
-                  item.unitPrice || 0
-                )
-              ),
-
-            lineTotal:
-              Number(
-                item.unitPrice || 0
-              ) *
-              Math.max(
-                1,
-                Number(
-                  item.quantity || 1
-                )
-              ),
-          })
-        )
-      : [];
+    normalizeOrderItems(
+      Array.isArray(order.items)
+        ? order.items
+        : []
+    );
 
   const [
     items,
@@ -171,6 +240,69 @@ export default function EditOrderForm({
   ] = useState<
     EditOrderItem[]
   >(initialItems);
+
+  /*
+  ========================================
+  LOAD FRESH ORDER ITEMS
+  ========================================
+
+  The Orders table may contain a lightweight
+  order snapshot without variant fields.
+  Edit Order therefore fetches the authoritative
+  order detail here so variantId/name/SKU are
+  always available before editing.
+  ========================================
+  */
+
+  useEffect(() => {
+    let active = true;
+
+    const loadOrderItems = async () => {
+      try {
+        const response = await fetch(
+          `/api/admin/orders/${encodeURIComponent(
+            order.orderId
+          )}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+        );
+
+        const data = await response.json();
+
+        if (
+          !response.ok ||
+          !data?.success ||
+          !Array.isArray(data.items)
+        ) {
+          return;
+        }
+
+        if (!active || data.items.length === 0) {
+          return;
+        }
+
+        const freshItems =
+          normalizeOrderItems(
+            data.items
+          );
+
+        setItems(freshItems);
+      } catch (error) {
+        console.error(
+          "Load edit order details error:",
+          error
+        );
+      }
+    };
+
+    loadOrderItems();
+
+    return () => {
+      active = false;
+    };
+  }, [order.orderId]);
 
   /*
   ========================================
@@ -198,6 +330,16 @@ export default function EditOrderForm({
   const [
     showProductSelector,
     setShowProductSelector,
+  ] = useState(false);
+
+  const [
+    variantProduct,
+    setVariantProduct,
+  ] = useState<Product | null>(null);
+
+  const [
+    variantModalOpen,
+    setVariantModalOpen,
   ] = useState(false);
 
   /*
@@ -410,6 +552,62 @@ export default function EditOrderForm({
                       Boolean(
                         product.newArrival
                       ),
+
+                    hasVariants:
+                      Boolean(
+                        product.hasVariants
+                      ),
+
+                    variants:
+                      Array.isArray(
+                        product.variants
+                      )
+                        ? product.variants.map(
+                            (variant: any) => ({
+                              id: Number(
+                                variant.id ??
+                                  variant.variantId ??
+                                  0
+                              ),
+                              productId:
+                                String(
+                                  variant.productId ??
+                                    product.productId ??
+                                    ""
+                                ),
+                              variantName:
+                                String(
+                                  variant.variantName ??
+                                    ""
+                                ),
+                              sku:
+                                variant.sku ??
+                                null,
+                              price:
+                                variant.price != null
+                                  ? Number(variant.price)
+                                  : null,
+                              realStock:
+                                variant.realStock != null
+                                  ? Number(variant.realStock)
+                                  : 0,
+                              displayStock:
+                                variant.displayStock != null
+                                  ? Number(variant.displayStock)
+                                  : 0,
+                              image:
+                                variant.image ||
+                                null,
+                              status:
+                                variant.status ??
+                                null,
+                              sortOrder:
+                                variant.sortOrder != null
+                                  ? Number(variant.sortOrder)
+                                  : 0,
+                            })
+                          )
+                        : [],
                   })
                 )
               : [];
@@ -494,12 +692,95 @@ export default function EditOrderForm({
 
   /*
   ========================================
+  VARIANT HELPERS
+  ========================================
+  */
+
+  const getActiveVariants = (
+    product: Product
+  ) =>
+    (product.variants || []).filter(
+      (variant) =>
+        String(
+          variant.status || "Active"
+        ).toLowerCase() === "active" &&
+        Number(
+          variant.realStock ?? 0
+        ) > 0
+    );
+
+  const isSameItem = (
+    item: EditOrderItem,
+    productId: string,
+    variantId?: number | null
+  ) =>
+    String(item.productId) === productId &&
+    (item.variantId ?? null) ===
+      (variantId ?? null);
+
+  const getCurrentRealStock = (
+    item: EditOrderItem
+  ) => {
+    const product = products.find(
+      (candidate) =>
+        String(candidate.productId) ===
+        String(item.productId)
+    );
+
+    if (!product) return 0;
+
+    if (item.variantId != null) {
+      const variant = (
+        product.variants || []
+      ).find(
+        (candidate) =>
+          Number(candidate.id) ===
+          Number(item.variantId)
+      );
+
+      return Math.max(
+        0,
+        Number(variant?.realStock ?? 0)
+      );
+    }
+
+    return Math.max(
+      0,
+      Number(product.realStock ?? 0)
+    );
+  };
+
+  const getMaxEditableQuantity = (
+    item: EditOrderItem
+  ) =>
+    Math.max(
+      1,
+      Number(item.originalQuantity ?? 0) +
+        getCurrentRealStock(item)
+    );
+
+  const isVariantAlreadyAdded = (
+    productId: string,
+    variantId: number
+  ) =>
+    items.some(
+      (item) =>
+        isSameItem(
+          item,
+          productId,
+          variantId
+        )
+    );
+
+  /*
+  ========================================
   ADD PRODUCT
   ========================================
   */
 
   const handleAddProduct = (
-    product: Product
+    product: Product,
+    variant?: ProductVariant
   ) => {
     const productId =
       String(
@@ -514,27 +795,28 @@ export default function EditOrderForm({
       return;
     }
 
+    const variantId =
+      variant?.id != null
+        ? Number(variant.id)
+        : null;
+
     /*
     ====================================
-    PREVENT DUPLICATE PRODUCT
+    PREVENT DUPLICATE PRODUCT / VARIANT
     ====================================
     */
 
     const alreadyAdded =
       items.some(
         (item) =>
-          String(
-            item.productId
-          ) === productId
+          isSameItem(
+            item,
+            productId,
+            variantId
+          )
       );
 
     if (alreadyAdded) {
-      /*
-      Existing products are locked
-      in selector. Quantity should be
-      changed from the main order table.
-      */
-
       return;
     }
 
@@ -545,24 +827,32 @@ export default function EditOrderForm({
     */
 
     const availableStock =
-      Number(
-        product.displayStock ?? 0
-      );
+      variant
+        ? Number(
+            variant.realStock ?? 0
+          )
+        : Number(
+            product.realStock ?? 0
+          );
 
     if (
       availableStock <= 0
     ) {
       setMessage(
-        "❌ This product is currently out of stock."
+        variant
+          ? "❌ This variant is currently out of stock."
+          : "❌ This product is currently out of stock."
       );
 
       return;
     }
 
     const price =
-      Number(
-        product.price || 0
-      );
+      variant?.price != null
+        ? Number(variant.price)
+        : Number(
+            product.price || 0
+          );
 
     const newItem: EditOrderItem =
       {
@@ -579,6 +869,18 @@ export default function EditOrderForm({
 
         lineTotal:
           price,
+
+        variantId,
+
+        variantName:
+          variant?.variantName ||
+          null,
+
+        variantSku:
+          variant?.sku ||
+          null,
+
+        originalQuantity: 0,
       };
 
     setItems(
@@ -588,15 +890,26 @@ export default function EditOrderForm({
       ]
     );
 
-    setProductSearch(
-      ""
-    );
-
-    setShowProductSelector(
-      false
-    );
-
+    setProductSearch("");
+    setShowProductSelector(false);
+    setVariantModalOpen(false);
+    setVariantProduct(null);
     setMessage("");
+  };
+
+  const handleProductClick = (
+    product: Product
+  ) => {
+    const activeVariants =
+      getActiveVariants(product);
+
+    if (activeVariants.length > 0) {
+      setVariantProduct(product);
+      setVariantModalOpen(true);
+      return;
+    }
+
+    handleAddProduct(product);
   };
 
   /*
@@ -608,35 +921,43 @@ export default function EditOrderForm({
   const handleQuantityChange =
     (
       productId: string,
-      quantity: number
+      quantity: number,
+      variantId?: number | null
     ) => {
-      const nextQuantity =
-        Math.max(
-          1,
-          Number(quantity) || 1
-        );
+      setItems((current) =>
+        current.map((item) => {
+          if (
+            !isSameItem(
+              item,
+              productId,
+              variantId
+            )
+          ) {
+            return item;
+          }
 
-      setItems(
-        (current) =>
-          current.map(
-            (item) =>
-              item.productId ===
-              productId
-                ? {
-                    ...item,
+          const maxQuantity =
+            getMaxEditableQuantity(item);
 
-                    quantity:
-                      nextQuantity,
+          const requested = Number(quantity);
+          const safeRequested =
+            Number.isFinite(requested)
+              ? Math.floor(requested)
+              : 1;
 
-                    lineTotal:
-                      Number(
-                        item.unitPrice ||
-                          0
-                      ) *
-                      nextQuantity,
-                  }
-                : item
-          )
+          const nextQuantity = Math.min(
+            maxQuantity,
+            Math.max(1, safeRequested)
+          );
+
+          return {
+            ...item,
+            quantity: nextQuantity,
+            lineTotal:
+              Number(item.unitPrice || 0) *
+              nextQuantity,
+          };
+        })
       );
     };
 
@@ -649,7 +970,8 @@ export default function EditOrderForm({
   const handlePriceChange =
     (
       productId: string,
-      price: number
+      price: number,
+      variantId?: number | null
     ) => {
       const nextPrice =
         Math.max(
@@ -661,8 +983,11 @@ export default function EditOrderForm({
         (current) =>
           current.map(
             (item) =>
-              item.productId ===
-              productId
+              isSameItem(
+                item,
+                productId,
+                variantId
+              )
                 ? {
                     ...item,
 
@@ -689,14 +1014,18 @@ export default function EditOrderForm({
 
   const handleRemoveProduct =
     (
-      productId: string
+      productId: string,
+      variantId?: number | null
     ) => {
       setItems(
         (current) =>
           current.filter(
             (item) =>
-              item.productId !==
-              productId
+              !isSameItem(
+                item,
+                productId,
+                variantId
+              )
           )
       );
     };
@@ -765,6 +1094,24 @@ export default function EditOrderForm({
         ) {
           setMessage(
             "❌ Product quantity must be at least 1."
+          );
+
+          return;
+        }
+
+        const maxQuantity =
+          getMaxEditableQuantity(item);
+
+        if (
+          Number(item.quantity) >
+          maxQuantity
+        ) {
+          setMessage(
+            `❌ Maximum quantity for ${
+              item.variantName ||
+              item.productName ||
+              "this product"
+            } is ${maxQuantity}.`
           );
 
           return;
@@ -900,6 +1247,18 @@ export default function EditOrderForm({
                           Number(
                             item.unitPrice
                           ),
+
+                        variantId:
+                          item.variantId ??
+                          null,
+
+                        variantName:
+                          item.variantName ??
+                          null,
+
+                        variantSku:
+                          item.variantSku ??
+                          null,
                       })
                     ),
                 }),
@@ -1231,9 +1590,10 @@ export default function EditOrderForm({
                     item
                   ) => (
                     <div
-                      key={
-                        item.productId
-                      }
+                      key={getOrderItemKey(
+                        item.productId,
+                        item.variantId
+                      )}
                       className="grid grid-cols-[1fr_90px_120px_120px_80px] items-center gap-3 border-t px-4 py-4"
                     >
 
@@ -1252,12 +1612,33 @@ export default function EditOrderForm({
                               "N/A"
                           }
                         </div>
+
+                        {item.variantId != null && (
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                            {item.variantName && (
+                              <span className="rounded-md bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+                                {item.variantName}
+                              </span>
+                            )}
+
+                            {item.variantSku && (
+                              <span className="text-gray-500">
+                                SKU: {item.variantSku}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div>
                         <input
                           type="number"
                           min="1"
+                          max={
+                            getMaxEditableQuantity(
+                              item
+                            )
+                          }
                           value={
                             item.quantity
                           }
@@ -1268,7 +1649,8 @@ export default function EditOrderForm({
                               item.productId,
                               Number(
                                 e.target.value
-                              )
+                              ),
+                              item.variantId
                             )
                           }
                           className="w-full rounded-lg border px-2 py-2 text-center outline-none focus:border-blue-500"
@@ -1290,7 +1672,8 @@ export default function EditOrderForm({
                               item.productId,
                               Number(
                                 e.target.value
-                              )
+                              ),
+                              item.variantId
                             )
                           }
                           className="w-full rounded-lg border px-2 py-2 text-right outline-none focus:border-blue-500"
@@ -1317,7 +1700,8 @@ export default function EditOrderForm({
                           type="button"
                           onClick={() =>
                             handleRemoveProduct(
-                              item.productId
+                              item.productId,
+                              item.variantId
                             )
                           }
                           className="rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
@@ -1678,7 +2062,7 @@ export default function EditOrderForm({
                 }
                 className="rounded-lg bg-gray-100 px-3 py-2 text-lg hover:bg-gray-200"
               >
-                ✕
+                Close
               </button>
 
             </div>
@@ -1731,27 +2115,54 @@ export default function EditOrderForm({
                             ""
                         );
 
-                      const alreadyAdded =
-                        items.some(
-                          (
-                            item
-                          ) =>
-                            String(
-                              item.productId
-                            ) ===
-                            productId
+                      const activeVariants =
+                        getActiveVariants(
+                          product
                         );
 
-                      const displayStock =
+                      const hasAvailableVariants =
+                        activeVariants.length >
+                        0;
+
+                      const isVariantProduct =
+                        hasAvailableVariants ||
+                        Boolean(
+                          product.hasVariants
+                        );
+
+                      const alreadyAdded =
+                        !isVariantProduct &&
+                        items.some(
+                          (item) =>
+                            isSameItem(
+                              item,
+                              productId,
+                              null
+                            )
+                        );
+
+                      const realStock =
                         Number(
-                          product.displayStock ??
+                          product.realStock ??
                             0
                         );
 
+                      const variantRealStock =
+                        activeVariants.reduce(
+                          (total, variant) =>
+                            total +
+                            Number(
+                              variant.realStock ??
+                                0
+                            ),
+                          0
+                        );
+
                       const isAvailable =
-                        !alreadyAdded &&
-                        displayStock >
-                          0;
+                        isVariantProduct
+                          ? hasAvailableVariants
+                          : !alreadyAdded &&
+                            realStock > 0;
 
                       const image =
                         product.image ||
@@ -1766,8 +2177,7 @@ export default function EditOrderForm({
                           className={`flex items-center gap-4 rounded-xl border p-3 transition ${
                             alreadyAdded
                               ? "border-gray-200 bg-gray-50 opacity-70"
-                              : displayStock <=
-                                  0
+                              : !isAvailable
                                 ? "border-red-100 bg-red-50/30 opacity-60"
                                 : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
                           }`}
@@ -1829,22 +2239,50 @@ export default function EditOrderForm({
                                 }
                               </span>
 
+                              {isVariantProduct && (
+                                <>
+                                  <span className="text-gray-400">
+                                    •
+                                  </span>
+
+                                  <span className="font-medium text-blue-600">
+                                    {activeVariants.length} variant{
+                                      activeVariants.length === 1
+                                        ? ""
+                                        : "s"
+                                    }
+                                  </span>
+                                </>
+                              )}
+
                             </div>
 
                             <div className="mt-1 text-xs">
 
-                              {alreadyAdded ? (
+                              {isVariantProduct ? (
+                                hasAvailableVariants ? (
+                                  <span className="font-medium text-green-600">
+                                    {activeVariants.length} variant{
+                                      activeVariants.length === 1
+                                        ? ""
+                                        : "s"
+                                    } available • {variantRealStock} real stock
+                                  </span>
+                                ) : (
+                                  <span className="font-medium text-red-600">
+                                    All variants are out of stock
+                                  </span>
+                                )
+                              ) : alreadyAdded ? (
                                 <span className="font-medium text-gray-500">
                                   ✓ Already Added
                                 </span>
-                              ) : displayStock >
+                              ) : realStock >
                                 0 ? (
                                 <span className="font-medium text-green-600">
                                   Available •{" "}
-                                  {
-                                    displayStock
-                                  }{" "}
-                                  in display stock
+                                  {realStock}{" "}
+                                  real stock
                                 </span>
                               ) : (
                                 <span className="font-medium text-red-600">
@@ -1860,7 +2298,24 @@ export default function EditOrderForm({
 
                           <div className="shrink-0">
 
-                            {alreadyAdded ? (
+                            {isVariantProduct ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  !isAvailable
+                                }
+                                onClick={() =>
+                                  handleProductClick(
+                                    product
+                                  )
+                                }
+                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                              >
+                                {isAvailable
+                                  ? "Choose Variant"
+                                  : "Unavailable"}
+                              </button>
+                            ) : alreadyAdded ? (
                               <div className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-semibold text-gray-500">
                                 ✓ Already Added
                               </div>
@@ -1871,13 +2326,13 @@ export default function EditOrderForm({
                                   !isAvailable
                                 }
                                 onClick={() =>
-                                  handleAddProduct(
+                                  handleProductClick(
                                     product
                                   )
                                 }
                                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                               >
-                                {displayStock >
+                                {realStock >
                                 0
                                   ? "+ Add"
                                   : "Unavailable"}
@@ -1901,6 +2356,149 @@ export default function EditOrderForm({
         </div>
       )}
 
+
+
+      {/* =================================
+          VARIANT SELECTOR
+      ================================= */}
+
+      {variantModalOpen && variantProduct && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
+
+          <div className="flex max-h-[78vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+            <div className="flex items-center justify-between border-b px-5 py-4">
+
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">
+                  Choose Variant
+                </h3>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  {variantProduct.productName ||
+                    "Product"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setVariantModalOpen(false);
+                  setVariantProduct(null);
+                }}
+                className="rounded-lg bg-gray-100 px-3 py-2 text-lg hover:bg-gray-200"
+              >
+                Close
+              </button>
+
+            </div>
+
+            <div className="overflow-y-auto p-5">
+
+              <div className="space-y-3">
+
+                {getActiveVariants(variantProduct).map(
+                  (variant) => {
+                    const alreadyAdded =
+                      isVariantAlreadyAdded(
+                        variantProduct.productId,
+                        variant.id
+                      );
+
+                    const image =
+                      variant.image ||
+                      variantProduct.image ||
+                      variantProduct.galleryImage1 ||
+                      "";
+
+                    return (
+                      <div
+                        key={variant.id}
+                        className={`flex items-center gap-4 rounded-xl border p-3 ${
+                          alreadyAdded
+                            ? "border-gray-200 bg-gray-50 opacity-70"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+
+                        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-gray-100">
+                          {image ? (
+                            <img
+                              src={image}
+                              alt={
+                                variant.variantName ||
+                                "Variant"
+                              }
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
+                              No Image
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-gray-900">
+                            {variant.variantName ||
+                              "Unnamed Variant"}
+                          </div>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                            <span>
+                              SKU: {variant.sku || "N/A"}
+                            </span>
+
+                            <span>
+                              Real Stock: {
+                                Number(
+                                  variant.realStock ??
+                                    0
+                                )
+                              }
+                            </span>
+
+                            <span className="font-semibold text-gray-900">
+                              Tk {
+                                Number(
+                                  variant.price ??
+                                    variantProduct.price ??
+                                    0
+                                ).toLocaleString()
+                              }
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={alreadyAdded}
+                          onClick={() =>
+                            handleAddProduct(
+                              variantProduct,
+                              variant
+                            )
+                          }
+                          className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                        >
+                          {alreadyAdded
+                            ? "Added"
+                            : "+ Add"}
+                        </button>
+
+                      </div>
+                    );
+                  }
+                )}
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
     </div>
   );
 }

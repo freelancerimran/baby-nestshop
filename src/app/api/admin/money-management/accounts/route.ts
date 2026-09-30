@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
@@ -307,6 +308,34 @@ export async function POST(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "create_account",
+      module: "finance",
+      targetType: "money_account",
+      targetId: data?.id,
+      description: `Created money account "${data?.name ?? name}".`,
+      metadata: {
+        account_id: data?.id,
+        name: data?.name ?? name,
+        account_type: data?.account_type ?? accountType,
+        ownership_type:
+          data?.ownership_type ?? ownershipType,
+        business_name:
+          data?.business_name ??
+          (ownershipType === "business"
+            ? businessName
+            : null),
+        opening_balance:
+          numberValue(
+            data?.opening_balance ??
+              openingBalance
+          ),
+        is_active:
+          data?.is_active ?? true,
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -321,6 +350,7 @@ export async function POST(
               data.opening_balance
             ),
         },
+        auditLogged,
       },
       {
         status: 201,

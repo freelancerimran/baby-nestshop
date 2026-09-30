@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasPermission } from "@/lib/permissions";
 
 /*
 ==========================================
@@ -21,6 +22,30 @@ export async function GET() {
   try {
     /*
     ========================================
+    PERMISSION CHECK
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "fulfillment",
+      "view"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to view fulfillment statistics.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================
     BANGLADESH TODAY RANGE
     ========================================
 
@@ -39,7 +64,8 @@ export async function GET() {
       6 * 60 * 60 * 1000;
 
     const dhakaNow = new Date(
-      now.getTime() + dhakaOffsetMs
+      now.getTime() +
+        dhakaOffsetMs
     );
 
     const year =

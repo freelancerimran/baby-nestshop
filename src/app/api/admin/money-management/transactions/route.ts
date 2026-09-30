@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
@@ -584,6 +585,50 @@ export async function POST(
       }
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "create_transaction",
+      module: "finance",
+      targetType: "money_transaction",
+      targetId: data?.id,
+      description:
+        `Created ${transactionType} transaction ${data?.id ?? ""}.`.trim(),
+      metadata: {
+        transaction_id: data?.id,
+        account_id: accountId,
+        transaction_type:
+          data?.transaction_type ??
+          transactionType,
+        ownership_type:
+          data?.ownership_type ??
+          ownershipType,
+        category_id:
+          data?.category_id ?? categoryId,
+        amount: numberValue(
+          data?.amount ?? amount
+        ),
+        transaction_date:
+          data?.transaction_date ??
+          transactionDate,
+        description:
+          data?.description ??
+          (description || null),
+        reference:
+          data?.reference ??
+          (reference || null),
+        related_account_id:
+          data?.related_account_id ??
+          (transactionType === "transfer"
+            ? relatedAccountId
+            : null),
+        goal_id:
+          data?.goal_id ?? goalId,
+        goal_contribution_created:
+          goalId !== null &&
+          transactionType === "income",
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -593,6 +638,7 @@ export async function POST(
             data.amount
           ),
         },
+        auditLogged,
       },
       {
         status: 201,

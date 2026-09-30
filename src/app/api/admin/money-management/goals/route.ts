@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { writeAuditLog } from "@/lib/audit";
 
 function numberValue(value: unknown) {
   const number = Number(value ?? 0);
@@ -392,6 +393,42 @@ export async function POST(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request,
+      action: "create_goal",
+      module: "finance",
+      targetType: "money_goal",
+      targetId: data?.id,
+      description: `Created money goal "${data?.name ?? name}".`,
+      metadata: {
+        goal_id: data?.id,
+        name: data?.name ?? name,
+        description:
+          data?.description ??
+          (description || null),
+        ownership_type:
+          data?.ownership_type ?? ownershipType,
+        target_amount:
+          numberValue(
+            data?.target_amount ??
+              targetAmount
+          ),
+        monthly_target:
+          numberValue(
+            data?.monthly_target ??
+              monthlyTarget
+          ),
+        start_date:
+          data?.start_date ?? startDate,
+        target_date:
+          data?.target_date ?? targetDate,
+        status:
+          data?.status ?? status,
+        notes:
+          data?.notes ?? (notes || null),
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -413,6 +450,7 @@ export async function POST(
           percentage: 0,
           contribution_count: 0,
         },
+        auditLogged,
       },
       {
         status: 201,

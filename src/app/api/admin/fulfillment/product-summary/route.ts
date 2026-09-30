@@ -1,8 +1,33 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasPermission } from "@/lib/permissions";
 
 export async function GET() {
   try {
+    /*
+    ========================================
+    PERMISSION CHECK
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "fulfillment",
+      "view"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to view fulfillment data.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
     /*
     ========================================
     BANGLADESH TODAY RANGE

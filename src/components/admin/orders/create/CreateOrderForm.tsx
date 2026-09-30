@@ -74,10 +74,31 @@ interface Product {
   featuredImage?: string | null;
 
   status?: string | null;
+
+  hasVariants?: boolean | null;
+  variants?: ProductVariant[] | null;
+}
+
+interface ProductVariant {
+  id: number;
+  productId: string;
+  variantName: string;
+  sku: string | null;
+  price: number | null;
+  realStock: number;
+  displayStock: number;
+  image: string | null;
+  status: string;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface OrderItem {
   productId: string;
+  variantId: number | null;
+  variantName: string | null;
+  variantSku: string | null;
   productName: string;
   productSlug: string;
   quantity: number;
@@ -934,6 +955,12 @@ export default function CreateOrderForm() {
   const [items, setItems] =
     useState<OrderItem[]>([]);
 
+  const [variantProduct, setVariantProduct] =
+    useState<Product | null>(null);
+
+  const [variantModalOpen, setVariantModalOpen] =
+    useState(false);
+
   const [loadingProducts, setLoadingProducts] =
     useState(false);
 
@@ -1519,70 +1546,87 @@ export default function CreateOrderForm() {
       form.customDeliveryCharge,
     ]);
 
+  function productVariants(product: Product) {
+    return (product.variants ?? []).filter(
+      (variant) =>
+        String(variant.productId) ===
+          productId(product) &&
+        String(variant.status ?? "Active").toLowerCase() ===
+          "active"
+    );
+  }
+
+  function itemKey(
+    productIdValue: string,
+    variantId: number | null
+  ) {
+    return `${productIdValue}::${variantId ?? "parent"}`;
+  }
+
+  function selectedItemKey(item: OrderItem) {
+    return itemKey(
+      item.productId,
+      item.variantId
+    );
+  }
+
   /* =======================================================
      ADD PRODUCT
   ======================================================= */
 
   function addProduct(
-    product: Product
+    product: Product,
+    variant: ProductVariant | null = null
   ) {
     setError("");
 
-    const id =
-      productId(product);
+    const id = productId(product);
 
     if (!id) {
       setError(
         "This product does not have a valid product ID."
       );
-
       return;
     }
 
-    const stock =
-      productStock(product);
+    const stock = variant
+      ? Math.max(0, numberValue(variant.realStock))
+      : productStock(product);
 
     if (stock <= 0) {
       setError(
-        `${productName(
-          product
-        )} is out of stock.`
+        variant
+          ? `${variant.variantName} is out of stock.`
+          : `${productName(product)} is out of stock.`
       );
-
       return;
     }
 
-    const existing =
-      items.find(
-        (item) =>
-          item.productId ===
-          id
-      );
+    const existing = items.find(
+      (item) =>
+        selectedItemKey(item) ===
+        itemKey(id, variant?.id ?? null)
+    );
 
     if (existing) {
-      if (
-        existing.quantity >=
-        existing.stock
-      ) {
+      if (existing.quantity >= existing.stock) {
         setError(
-          `Only ${existing.stock} pcs available for ${existing.productName}.`
+          `Only ${existing.stock} pcs available for ${existing.productName}${existing.variantName ? ` — ${existing.variantName}` : ""}.`
         );
-
         return;
       }
 
       setItems((current) =>
         current.map((item) =>
-          item.productId === id
+          selectedItemKey(item) ===
+          itemKey(id, variant?.id ?? null)
             ? {
                 ...item,
-                quantity:
-                  item.quantity + 1,
+                quantity: item.quantity + 1,
               }
             : item
         )
       );
-
       return;
     }
 
@@ -1590,18 +1634,38 @@ export default function CreateOrderForm() {
       ...current,
       {
         productId: id,
-        productName:
-          productName(product),
-        productSlug:
-          productSlug(product),
+        variantId: variant?.id ?? null,
+        variantName: variant?.variantName ?? null,
+        variantSku: variant?.sku ?? null,
+        productName: productName(product),
+        productSlug: productSlug(product),
         quantity: 1,
-        unitPrice:
-          productPrice(product),
-        imageUrl:
-          productImage(product),
+        unitPrice: variant?.price != null
+          ? numberValue(variant.price)
+          : productPrice(product),
+        imageUrl: variant?.image || productImage(product),
         stock,
       },
     ]);
+  }
+
+  function handleProductClick(product: Product) {
+    setError("");
+
+    const variants = productVariants(product);
+
+    if (variants.length > 0) {
+      setVariantProduct(product);
+      setVariantModalOpen(true);
+      return;
+    }
+
+    addProduct(product);
+  }
+
+  function closeVariantModal() {
+    setVariantModalOpen(false);
+    setVariantProduct(null);
   }
 
   /* =======================================================
@@ -1609,13 +1673,14 @@ export default function CreateOrderForm() {
   ======================================================= */
 
   function removeProduct(
-    productIdValue: string
+    productIdValue: string,
+    variantId: number | null = null
   ) {
     setItems((current) =>
       current.filter(
         (item) =>
-          item.productId !==
-          productIdValue
+          selectedItemKey(item) !==
+          itemKey(productIdValue, variantId)
       )
     );
   }
@@ -1626,13 +1691,14 @@ export default function CreateOrderForm() {
 
   function changeQuantity(
     productIdValue: string,
-    change: number
+    change: number,
+    variantId: number | null = null
   ) {
     setItems((current) =>
       current.map((item) => {
         if (
-          item.productId !==
-          productIdValue
+          selectedItemKey(item) !==
+          itemKey(productIdValue, variantId)
         ) {
           return item;
         }
@@ -1657,7 +1723,8 @@ export default function CreateOrderForm() {
 
   function setQuantity(
     productIdValue: string,
-    value: number
+    value: number,
+    variantId: number | null = null
   ) {
     if (
       !Number.isFinite(value)
@@ -1668,8 +1735,8 @@ export default function CreateOrderForm() {
     setItems((current) =>
       current.map((item) => {
         if (
-          item.productId !==
-          productIdValue
+          selectedItemKey(item) !==
+          itemKey(productIdValue, variantId)
         ) {
           return item;
         }
@@ -1697,12 +1764,13 @@ export default function CreateOrderForm() {
 
   function setItemPrice(
     productIdValue: string,
-    value: number
+    value: number,
+    variantId: number | null = null
   ) {
     setItems((current) =>
       current.map((item) =>
-        item.productId ===
-        productIdValue
+        selectedItemKey(item) ===
+        itemKey(productIdValue, variantId)
           ? {
               ...item,
               unitPrice:
@@ -1913,6 +1981,15 @@ export default function CreateOrderForm() {
                   productSlug:
                     item.productSlug,
 
+                  variantId:
+                    item.variantId,
+
+                  variantName:
+                    item.variantName,
+
+                  variantSku:
+                    item.variantSku,
+
                   quantity:
                     item.quantity,
 
@@ -1993,8 +2070,134 @@ export default function CreateOrderForm() {
      UI
   ======================================================= */
 
+  const activeVariantOptions =
+    variantProduct
+      ? productVariants(variantProduct)
+      : [];
+
   return (
-    <div className="min-h-full bg-[#f8fafc] pb-10">
+    <>
+      {variantModalOpen && variantProduct && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Select product variant"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeVariantModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-white/60 bg-white shadow-[0_30px_100px_rgba(15,23,42,0.25)]">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-br from-violet-50 via-white to-blue-50 px-6 py-5 sm:px-7">
+              <div>
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-700">
+                  <Sparkles size={12} />
+                  Choose Variant
+                </div>
+                <h2 className="text-xl font-black tracking-tight text-slate-950">
+                  {productName(variantProduct)}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">
+                  Select the exact variant you want to add to this order.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeVariantModal}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                aria-label="Close variant selector"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] space-y-3 overflow-y-auto p-5 sm:p-6">
+              {activeVariantOptions.map((variant) => {
+                const existing = items.find(
+                  (item) =>
+                    selectedItemKey(item) ===
+                    itemKey(productId(variantProduct), variant.id)
+                );
+                const variantStock = numberValue(variant.realStock);
+                const variantImage = variant.image || productImage(variantProduct);
+                const variantPrice = variant.price != null
+                  ? numberValue(variant.price)
+                  : productPrice(variantProduct);
+
+                return (
+                  <button
+                    key={variant.id}
+                    type="button"
+                    disabled={variantStock <= 0}
+                    onClick={() => {
+                      addProduct(variantProduct, variant);
+                      closeVariantModal();
+                    }}
+                    className={`group flex w-full items-center gap-4 rounded-2xl border p-3 text-left transition-all duration-200 ${
+                      variantStock <= 0
+                        ? "cursor-not-allowed border-slate-100 bg-slate-50 opacity-60"
+                        : existing
+                        ? "border-violet-200 bg-violet-50/60 shadow-sm"
+                        : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-lg"
+                    }`}
+                  >
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                      {variantImage ? (
+                        <img
+                          src={variantImage}
+                          alt={variant.variantName}
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-slate-300">
+                          <Package size={22} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-black text-slate-900">
+                          {variant.variantName}
+                        </p>
+                        {existing && (
+                          <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[9px] font-black text-white">
+                            Added × {existing.quantity}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-black text-violet-600">
+                          {money(variantPrice)}
+                        </span>
+                        {variant.sku && (
+                          <span className="text-[10px] font-bold text-slate-400">
+                            SKU: {variant.sku}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className={`text-xs font-black ${variantStock > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                        {variantStock > 0 ? `${variantStock} pcs` : "Out of stock"}
+                      </p>
+                      <div className={`mt-2 flex h-9 w-9 items-center justify-center rounded-xl transition ${variantStock > 0 ? "bg-slate-100 text-slate-600 group-hover:bg-violet-600 group-hover:text-white" : "bg-slate-100 text-slate-300"}`}>
+                        {existing ? <Check size={17} /> : <Plus size={17} />}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-full bg-[#f8fafc] pb-10">
       <div className="mx-auto max-w-[1500px] px-4 py-6 lg:px-7">
 
         {/* =================================================
@@ -2874,10 +3077,25 @@ District: Dhaka`}
                             product
                           );
 
-                        const stock =
-                          productStock(
+                        const variants =
+                          productVariants(
                             product
                           );
+
+                        const hasVariants =
+                          variants.length > 0;
+
+                        const stock =
+                          hasVariants
+                            ? variants.reduce(
+                                (total, variant) =>
+                                  total +
+                                  numberValue(
+                                    variant.realStock
+                                  ),
+                                0
+                              )
+                            : productStock(product);
 
                         const image =
                           productImage(
@@ -2910,17 +3128,16 @@ District: Dhaka`}
                             }
                             type="button"
                             onClick={() =>
-                              addProduct(
+                              handleProductClick(
                                 product
                               )
                             }
                             disabled={
-                              stock <=
-                              0
+                              stock <= 0 &&
+                              !hasVariants
                             }
                             className={`group relative flex min-h-[108px] items-center gap-4 rounded-2xl border p-3 text-left transition-all duration-200 ${
-                              stock <=
-                              0
+                              stock <= 0 && !hasVariants
                                 ? "cursor-not-allowed border-slate-100 bg-slate-50 opacity-60"
                                 : alreadyAdded
                                 ? "border-blue-200 bg-blue-50/50 shadow-sm"
@@ -2987,11 +3204,17 @@ District: Dhaka`}
                                 }
                               </p>
 
-                              <p className="mt-1.5 text-base font-black text-blue-600">
-                                {money(
-                                  price
+                              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                <p className="text-base font-black text-blue-600">
+                                  {money(price)}
+                                </p>
+
+                                {hasVariants && (
+                                  <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-black text-violet-600 ring-1 ring-inset ring-violet-100">
+                                    {variants.length} variants
+                                  </span>
                                 )}
-                              </p>
+                              </div>
 
                               <div className="mt-1 flex items-center gap-1.5">
 
@@ -3012,9 +3235,10 @@ District: Dhaka`}
                                       : "text-red-500"
                                   }`}
                                 >
-                                  {stock >
-                                  0
-                                    ? `Stock: ${stock} pcs`
+                                  {stock > 0
+                                    ? hasVariants
+                                      ? "Choose variant"
+                                      : `Stock: ${stock} pcs`
                                     : "Out of stock"}
                                 </span>
 
@@ -3037,18 +3261,12 @@ District: Dhaka`}
                                 }`}
                               >
 
-                                {alreadyAdded ? (
-                                  <Check
-                                    size={
-                                      17
-                                    }
-                                  />
+                                {hasVariants ? (
+                                  <ChevronRight size={17} />
+                                ) : alreadyAdded ? (
+                                  <Check size={17} />
                                 ) : (
-                                  <Plus
-                                    size={
-                                      17
-                                    }
-                                  />
+                                  <Plus size={17} />
                                 )}
 
                               </div>
@@ -3189,7 +3407,7 @@ District: Dhaka`}
 
                         <div
                           key={
-                            item.productId
+                            selectedItemKey(item)
                           }
                           className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
                         >
@@ -3231,10 +3449,21 @@ District: Dhaka`}
                             <div className="min-w-[180px] flex-1">
 
                               <p className="text-sm font-black text-slate-900">
-                                {
-                                  item.productName
-                                }
+                                {item.productName}
                               </p>
+
+                              {item.variantName && (
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  <span className="rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-black text-violet-700">
+                                    {item.variantName}
+                                  </span>
+                                  {item.variantSku && (
+                                    <span className="text-[10px] font-semibold text-slate-400">
+                                      SKU: {item.variantSku}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
                               <p className="mt-1 text-xs font-medium text-slate-400">
                                 Available Stock:{" "}
@@ -3261,7 +3490,8 @@ District: Dhaka`}
                                   onClick={() =>
                                     changeQuantity(
                                       item.productId,
-                                      -1
+                                      -1,
+                                      item.variantId
                                     )
                                   }
                                   disabled={
@@ -3295,7 +3525,8 @@ District: Dhaka`}
                                         event
                                           .target
                                           .value
-                                      )
+                                      ),
+                                      item.variantId
                                     )
                                   }
                                   className="h-full w-12 border-x border-slate-200 text-center text-sm font-black text-slate-900 outline-none"
@@ -3306,7 +3537,8 @@ District: Dhaka`}
                                   onClick={() =>
                                     changeQuantity(
                                       item.productId,
-                                      1
+                                      1,
+                                      item.variantId
                                     )
                                   }
                                   disabled={
@@ -3349,7 +3581,8 @@ District: Dhaka`}
                                       event
                                         .target
                                         .value
-                                    )
+                                    ),
+                                    item.variantId
                                   )
                                 }
                                 className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
@@ -3380,7 +3613,8 @@ District: Dhaka`}
                               type="button"
                               onClick={() =>
                                 removeProduct(
-                                  item.productId
+                                  item.productId,
+                                  item.variantId
                                 )
                               }
                               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-500 transition hover:bg-red-100"
@@ -4112,5 +4346,6 @@ District: Dhaka`}
 
       </div>
     </div>
+    </>
   );
 }

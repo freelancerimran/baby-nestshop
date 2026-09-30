@@ -7,68 +7,105 @@ import crypto from "crypto";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+
 /*
 ============================================================
 QUICK ORDER API
 ============================================================
 
-Purpose:
+Flow:
 
 Quick Cart
     ↓
-One API Request
+Quick Order Page
+    ↓
+Product / Variant Selection
+    ↓
+POST /api/quick-order
     ↓
 create_quick_order()
     ↓
-One Master Order
-    ↓
-Multiple order_items
-    ↓
-Atomic Inventory Update
+Atomic Order + Stock Transaction
+
 
 IMPORTANT:
 
-This API does NOT call:
+The database is the source of truth for:
 
-create_order_with_stock()
+- Product
+- Variant
+- Price
+- Stock
+- Subtotal
+- Discount
+- Grand Total
 
-The existing single-product production API remains
-untouched.
+The client NEVER controls final price or stock.
+============================================================
+*/
 
-Inventory is handled atomically inside:
 
-create_quick_order()
-
+/*
+============================================================
+TYPES
 ============================================================
 */
 
 interface QuickOrderItem {
   productId: number | string;
+
+  /*
+  Variant product:
+
+  variantId = selected variant ID
+
+  Non-variant product:
+
+  variantId = null
+  */
+
+  variantId?: number | string | null;
+
+  variantName?: string | null;
+
+  variantSku?: string | null;
+
   productName?: string;
+
   quantity: number;
+
   unitPrice?: number;
+
   slug?: string;
 }
 
+
 interface QuickOrderRequest {
   customerName: string;
+
   phone: string;
+
   district: string;
+
   address: string;
 
   note?: string;
 
   deliveryArea?: string;
+
   deliveryCharge?: number;
 
   couponCode?: string;
+
   discount?: number;
 
   subtotal?: number;
+
   total?: number;
 
   items: QuickOrderItem[];
 }
+
 
 /*
 ============================================================
@@ -80,6 +117,7 @@ export async function POST(
   request: NextRequest
 ) {
   try {
+
     /*
     ========================================================
     READ REQUEST
@@ -101,25 +139,30 @@ export async function POST(
         body.customerName ?? ""
       ).trim();
 
+
     const phone =
       String(
         body.phone ?? ""
       ).trim();
+
 
     const district =
       String(
         body.district ?? ""
       ).trim();
 
+
     const address =
       String(
         body.address ?? ""
       ).trim();
 
+
     const deliveryArea =
       String(
         body.deliveryArea ?? ""
       ).trim();
+
 
     const couponCode =
       String(
@@ -127,7 +170,14 @@ export async function POST(
       ).trim();
 
 
+    /*
+    ========================================================
+    REQUIRED FIELDS
+    ========================================================
+    */
+
     if (!customerName) {
+
       return NextResponse.json(
         {
           success: false,
@@ -138,10 +188,12 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
     if (!phone) {
+
       return NextResponse.json(
         {
           success: false,
@@ -152,10 +204,12 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
     if (!district) {
+
       return NextResponse.json(
         {
           success: false,
@@ -166,10 +220,12 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
     if (!address) {
+
       return NextResponse.json(
         {
           success: false,
@@ -180,6 +236,7 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
@@ -193,6 +250,7 @@ export async function POST(
       !Array.isArray(body.items) ||
       body.items.length === 0
     ) {
+
       return NextResponse.json(
         {
           success: false,
@@ -203,112 +261,205 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
     /*
     ========================================================
-    NORMALIZE CART ITEMS
+    NORMALIZE ITEMS
     ========================================================
 
-    The database is the source of truth for:
+    IMPORTANT:
 
-    - Product name
-    - Product price
-    - Product slug
-    - Stock
+    We preserve variantId.
 
-    Therefore we only send:
+    Before:
 
-    productId
-    quantity
+        productId
+        quantity
 
-    to the PostgreSQL function.
+    Now:
+
+        productId
+        variantId
+        quantity
+
+    Product price and stock are still NOT trusted from
+    the client.
     ========================================================
     */
 
-    const items = body.items.map(
-      (
-        item,
-        index
-      ) => {
-        const productId =
-          String(
-            item?.productId ?? ""
-          ).trim();
+    const items =
+      body.items.map(
+        (
+          item,
+          index
+        ) => {
 
-        const quantity =
-          Number(
-            item?.quantity ?? 0
-          );
+          const productId =
+            String(
+              item?.productId ?? ""
+            ).trim();
 
-        if (!productId) {
-          throw new Error(
-            `Product ID missing for cart item ${index + 1}.`
-          );
+
+          const rawVariantId =
+            item?.variantId;
+
+
+          const variantId =
+            rawVariantId ===
+              null ||
+            rawVariantId ===
+              undefined ||
+            String(
+              rawVariantId
+            ).trim() === ""
+              ? null
+              : Number(
+                  rawVariantId
+                );
+
+
+          const quantity =
+            Number(
+              item?.quantity ?? 0
+            );
+
+
+          /*
+          ----------------------------------------------------
+          PRODUCT ID
+          ----------------------------------------------------
+          */
+
+          if (!productId) {
+
+            throw new Error(
+              `Product ID missing for cart item ${
+                index + 1
+              }.`
+            );
+
+          }
+
+
+          /*
+          ----------------------------------------------------
+          QUANTITY
+          ----------------------------------------------------
+          */
+
+          if (
+            !Number.isInteger(
+              quantity
+            ) ||
+            quantity <= 0
+          ) {
+
+            throw new Error(
+              `Invalid quantity for product ${productId}.`
+            );
+
+          }
+
+
+          /*
+          ----------------------------------------------------
+          VARIANT ID
+          ----------------------------------------------------
+
+          If provided, it MUST be a valid integer.
+          ----------------------------------------------------
+          */
+
+          if (
+            variantId !== null &&
+            (
+              !Number.isInteger(
+                variantId
+              ) ||
+              variantId <= 0
+            )
+          ) {
+
+            throw new Error(
+              `Invalid variant for product ${productId}.`
+            );
+
+          }
+
+
+          return {
+
+            productId,
+
+            variantId,
+
+            quantity,
+
+          };
+
         }
-
-        if (
-          !Number.isInteger(
-            quantity
-          ) ||
-          quantity <= 0
-        ) {
-          throw new Error(
-            `Invalid quantity for product ${productId}.`
-          );
-        }
-
-        return {
-          productId,
-          quantity,
-        };
-      }
-    );
+      );
 
 
     /*
     ========================================================
-    CHECK DUPLICATE PRODUCTS
+    DUPLICATE CART ITEM CHECK
     ========================================================
 
-    One product should exist only once in the cart.
+    IMPORTANT:
 
-    This prevents accidental duplicate order_items.
+    Same product with DIFFERENT variants is allowed.
+
+    Example:
+
+        Product A / Red × 2
+        Product A / Blue × 1
+
+    Same exact product + variant cannot appear twice.
     ========================================================
     */
 
-    const productIds =
+    const itemKeys =
       items.map(
         (item) =>
-          item.productId
+          `${item.productId}::${
+            item.variantId ??
+            "base"
+          }`
       );
 
-    const uniqueProductIds =
+
+    const uniqueItemKeys =
       new Set(
-        productIds
+        itemKeys
       );
+
 
     if (
-      uniqueProductIds.size !==
-      productIds.length
+      uniqueItemKeys.size !==
+      itemKeys.length
     ) {
+
       return NextResponse.json(
         {
           success: false,
           message:
-            "Duplicate products found in cart.",
+            "Duplicate product variant found in cart.",
         },
         {
           status: 400,
         }
       );
+
     }
 
 
     /*
     ========================================================
-    NORMALIZE DELIVERY / DISCOUNT
+    DELIVERY
     ========================================================
     */
 
@@ -319,6 +470,37 @@ export async function POST(
           body.deliveryCharge ?? 0
         )
       );
+
+
+    if (
+      !Number.isFinite(
+        deliveryCharge
+      )
+    ) {
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid delivery charge.",
+        },
+        {
+          status: 400,
+        }
+      );
+
+    }
+
+
+    /*
+    ========================================================
+    DISCOUNT
+
+    Client discount is passed only for compatibility.
+
+    Final discount is calculated inside PostgreSQL.
+    ========================================================
+    */
 
     const discount =
       Math.max(
@@ -331,27 +513,10 @@ export async function POST(
 
     if (
       !Number.isFinite(
-        deliveryCharge
-      )
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Invalid delivery charge.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-
-    if (
-      !Number.isFinite(
         discount
       )
     ) {
+
       return NextResponse.json(
         {
           success: false,
@@ -362,6 +527,7 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
@@ -372,20 +538,15 @@ export async function POST(
 
     IMPORTANT:
 
-    We deliberately do NOT calculate:
+    create_quick_order() already supports:
 
-    - Product price
-    - Subtotal
-    - Grand total
-    - Stock
-
-    here.
-
-    PostgreSQL calculates those values using the current
-    database state.
-
-    This prevents the client from changing product prices
-    or bypassing stock validation.
+    - variantId
+    - multiple variants
+    - multiple products
+    - legacy non-variant products
+    - authoritative variant price
+    - authoritative stock
+    - atomic inventory update
     ========================================================
     */
 
@@ -434,20 +595,48 @@ export async function POST(
     */
 
     if (rpcError) {
+
       console.error(
         "QUICK ORDER RPC ERROR:",
         rpcError
       );
 
+
       const message =
         String(
-          rpcError.message ?? ""
+          rpcError.message ??
+            ""
         );
 
 
       /*
       ------------------------------------------------------
-      STOCK ERROR
+      VARIANT STOCK
+      ------------------------------------------------------
+      */
+
+      if (
+        message.includes(
+          "Product Variant Out Of Stock"
+        )
+      ) {
+
+        return NextResponse.json(
+          {
+            success: false,
+            message,
+          },
+          {
+            status: 400,
+          }
+        );
+
+      }
+
+
+      /*
+      ------------------------------------------------------
+      PRODUCT STOCK
       ------------------------------------------------------
       */
 
@@ -456,16 +645,43 @@ export async function POST(
           "Product Out Of Stock"
         )
       ) {
+
         return NextResponse.json(
           {
             success: false,
-            message:
-              message,
+            message,
           },
           {
             status: 400,
           }
         );
+
+      }
+
+
+      /*
+      ------------------------------------------------------
+      VARIANT NOT FOUND
+      ------------------------------------------------------
+      */
+
+      if (
+        message.includes(
+          "Product variant not found"
+        )
+      ) {
+
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Selected variant was not found.",
+          },
+          {
+            status: 404,
+          }
+        );
+
       }
 
 
@@ -480,16 +696,17 @@ export async function POST(
           "Product not found"
         )
       ) {
+
         return NextResponse.json(
           {
             success: false,
-            message:
-              message,
+            message,
           },
           {
             status: 404,
           }
         );
+
       }
 
 
@@ -504,6 +721,7 @@ export async function POST(
           "Cart is empty"
         )
       ) {
+
         return NextResponse.json(
           {
             success: false,
@@ -514,6 +732,35 @@ export async function POST(
             status: 400,
           }
         );
+
+      }
+
+
+      /*
+      ------------------------------------------------------
+      COUPON ERROR
+      ------------------------------------------------------
+      */
+
+      if (
+        message.includes(
+          "Coupon"
+        ) ||
+        message.includes(
+          "coupon"
+        )
+      ) {
+
+        return NextResponse.json(
+          {
+            success: false,
+            message,
+          },
+          {
+            status: 400,
+          }
+        );
+
       }
 
 
@@ -533,6 +780,7 @@ export async function POST(
           status: 500,
         }
       );
+
     }
 
 
@@ -547,10 +795,12 @@ export async function POST(
       typeof result !==
         "object"
     ) {
+
       console.error(
         "INVALID QUICK ORDER RPC RESULT:",
         result
       );
+
 
       return NextResponse.json(
         {
@@ -562,43 +812,64 @@ export async function POST(
           status: 500,
         }
       );
+
     }
 
 
     /*
     ========================================================
-    EXTRACT MASTER ORDER INFORMATION
+    EXTRACT ORDER RESULT
     ========================================================
     */
 
     const orderResult =
       result as {
         success?: boolean;
+
         orderId?: string;
+
         orderType?: string;
+
         itemCount?: number;
+
         totalItems?: number;
+
         subtotal?: number;
+
         deliveryCharge?: number;
+
         discount?: number;
+
         grandTotal?: number;
+
         paidAmount?: number;
+
         dueAmount?: number;
+
         paymentStatus?: string;
       };
 
 
     const orderId =
       String(
-        orderResult.orderId ?? ""
+        orderResult.orderId ??
+          ""
       ).trim();
 
 
+    /*
+    ========================================================
+    ORDER ID VALIDATION
+    ========================================================
+    */
+
     if (!orderId) {
+
       console.error(
         "QUICK ORDER ID MISSING:",
         result
       );
+
 
       return NextResponse.json(
         {
@@ -610,6 +881,7 @@ export async function POST(
           status: 500,
         }
       );
+
     }
 
 
@@ -617,24 +889,12 @@ export async function POST(
     ========================================================
     FACEBOOK CONVERSIONS API
     ========================================================
-
-    IMPORTANT:
-
-    The database transaction has already succeeded.
-
-    Therefore Facebook failure MUST NOT cancel the order.
-
-    Purchase event:
-
-    One Master Order
-    Multiple Product IDs
-    One Total Value
-    ========================================================
     */
 
     const pixelId =
       process.env
         .NEXT_PUBLIC_FACEBOOK_PIXEL_ID;
+
 
     const accessToken =
       process.env
@@ -661,14 +921,7 @@ export async function POST(
 
     /*
     ========================================================
-    FACEBOOK BROWSER IDENTIFIERS
-    ========================================================
-
-    When the browser has Meta's first-party cookies available,
-    pass them to Conversions API as additional matching data.
-
-    _fbp = browser identifier
-    _fbc = click identifier (when available)
+    META COOKIES
     ========================================================
     */
 
@@ -676,6 +929,7 @@ export async function POST(
       request.cookies.get(
         "_fbp"
       )?.value || "";
+
 
     const fbc =
       request.cookies.get(
@@ -685,19 +939,7 @@ export async function POST(
 
     /*
     ========================================================
-    HASH PHONE FOR FACEBOOK
-    ========================================================
-
-    Bangladesh phone numbers are normalized to country-code
-    format before SHA-256 hashing.
-
-    Example:
-
-    017XXXXXXXX
-        ↓
-    88017XXXXXXXX
-        ↓
-    SHA-256
+    PHONE HASH
     ========================================================
     */
 
@@ -713,11 +955,16 @@ export async function POST(
 
 
     if (
-      phoneDigits.startsWith("01") &&
-      phoneDigits.length === 11
+      phoneDigits.startsWith(
+        "01"
+      ) &&
+      phoneDigits.length ===
+        11
     ) {
+
       normalizedPhone =
         `88${phoneDigits}`;
+
     }
 
 
@@ -738,21 +985,18 @@ export async function POST(
     ========================================================
     EVENT SOURCE URL
     ========================================================
-
-    Prefer the actual Quick Order referrer.
-
-    This gives Meta the real page that generated the
-    conversion instead of the site homepage.
-    ========================================================
     */
 
     const eventSourceUrl =
       request.headers.get(
         "referer"
       ) ||
-      `${new URL(
-        request.url
-      ).origin}/quick-order`;
+      `${
+        new URL(
+          request.url
+        ).origin
+      }/quick-order`;
+
 
     /*
     ========================================================
@@ -761,10 +1005,12 @@ export async function POST(
     */
 
     try {
+
       if (
         pixelId &&
         accessToken
       ) {
+
         const capiResponse =
           await fetch(
             `https://graph.facebook.com/v23.0/${pixelId}/events?access_token=${accessToken}`,
@@ -777,8 +1023,8 @@ export async function POST(
                   "application/json",
               },
 
-              body:
-                JSON.stringify({
+              body: JSON.stringify(
+                {
                   data: [
                     {
                       event_name:
@@ -795,16 +1041,6 @@ export async function POST(
 
                       event_source_url:
                         eventSourceUrl,
-
-                      /*
-                      ----------------------------------------
-                      IMPORTANT
-
-                      Same order ID is used as event_id.
-                      This gives Facebook a stable identifier
-                      for the Purchase event.
-                      ----------------------------------------
-                      */
 
                       event_id:
                         orderId,
@@ -834,6 +1070,7 @@ export async function POST(
                       },
 
                       custom_data: {
+
                         currency:
                           "BDT",
 
@@ -843,12 +1080,33 @@ export async function POST(
                               0
                           ),
 
+                        /*
+                        Meta receives the parent
+                        product IDs.
+
+                        Variant IDs are included in
+                        contents below.
+                        */
+
                         content_ids:
-                          productIds,
+                          Array.from(
+                            new Set(
+                              items.map(
+                                (
+                                  item
+                                ) =>
+                                  String(
+                                    item.productId
+                                  )
+                              )
+                            )
+                          ),
 
                         contents:
                           items.map(
-                            (item) => ({
+                            (
+                              item
+                            ) => ({
                               id:
                                 String(
                                   item.productId
@@ -858,6 +1116,13 @@ export async function POST(
                                 Number(
                                   item.quantity
                                 ),
+
+                              ...(item.variantId
+                                ? {
+                                    item_price:
+                                      undefined,
+                                  }
+                                : {}),
                             })
                           ),
 
@@ -872,38 +1137,43 @@ export async function POST(
                       },
                     },
                   ],
-                }),
+                }
+              ),
             }
           );
 
 
-        /*
-        ------------------------------------------------------
-        CAPI FAILURE
-
-        Never fail the actual order.
-        ------------------------------------------------------
-        */
-
         if (
           !capiResponse.ok
         ) {
+
           const capiError =
             await capiResponse.text();
+
 
           console.error(
             "QUICK ORDER CAPI RESPONSE ERROR:",
             capiError
           );
+
         }
+
       }
+
     } catch (
       capiError
     ) {
+
+      /*
+      Facebook failure must NEVER
+      cancel a successful order.
+      */
+
       console.error(
         "QUICK ORDER CAPI ERROR:",
         capiError
       );
+
     }
 
 
@@ -979,10 +1249,14 @@ export async function POST(
         status: 200,
       }
     );
-  } catch (error) {
+
+  } catch (
+    error
+  ) {
+
     /*
     ========================================================
-    REQUEST / UNEXPECTED ERROR
+    UNEXPECTED ERROR
     ========================================================
     */
 
@@ -1000,7 +1274,7 @@ export async function POST(
 
     /*
     --------------------------------------------------------
-    CLIENT-SIDE VALIDATION ERROR
+    CLIENT VALIDATION
     --------------------------------------------------------
     */
 
@@ -1010,8 +1284,15 @@ export async function POST(
       ) ||
       message.includes(
         "Invalid quantity"
+      ) ||
+      message.includes(
+        "Invalid variant"
+      ) ||
+      message.includes(
+        "Duplicate product variant"
       )
     ) {
+
       return NextResponse.json(
         {
           success: false,
@@ -1021,6 +1302,7 @@ export async function POST(
           status: 400,
         }
       );
+
     }
 
 
@@ -1040,5 +1322,6 @@ export async function POST(
         status: 500,
       }
     );
+
   }
 }

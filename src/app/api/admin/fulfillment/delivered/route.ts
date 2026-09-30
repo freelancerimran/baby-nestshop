@@ -4,6 +4,8 @@ import {
 } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasPermission } from "@/lib/permissions";
+import { writeAuditLog } from "@/lib/audit";
 
 /*
 ==========================================
@@ -75,6 +77,30 @@ export async function POST(
   req: NextRequest
 ) {
   try {
+    /*
+    ========================================
+    PERMISSION CHECK
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "fulfillment",
+      "edit"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to edit fulfillment.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
     /*
     ========================================
     GET QUEUE ID
@@ -164,16 +190,6 @@ export async function POST(
     ========================================
     VERIFY MAIN ORDER EXISTS
     ========================================
-
-    We only verify that the order exists.
-
-    We DO NOT use this route to change:
-
-    - order status
-    - courier status
-    - payment
-    - finance
-    ========================================
     */
 
     const {
@@ -226,18 +242,6 @@ export async function POST(
     /*
     ========================================
     UPDATE FULFILLMENT QUEUE
-    ========================================
-
-    fulfillment_queue uses "delivered"
-    as its internal final/completed state.
-
-    In this table, "delivered" means:
-
-    WAREHOUSE FULFILLMENT COMPLETED.
-
-    It does NOT mean:
-
-    CUSTOMER DELIVERY CONFIRMED.
     ========================================
     */
 
@@ -375,23 +379,35 @@ export async function POST(
       );
     }
 
+    const auditLogged = await writeAuditLog({
+      request: req,
+      action: "complete",
+      module: "fulfillment",
+      targetType: "fulfillment_queue",
+      targetId: String(id),
+      description: `Completed fulfillment warehouse flow for order ${orderId}.`,
+      metadata: {
+        queue_id: id,
+        order_id: orderId,
+        previous_queue_status: queueItem.fulfillment_status ?? null,
+        new_queue_status: updatedQueue.fulfillment_status ?? null,
+        previous_queue_delivered_at: queueItem.delivered_at ?? null,
+        new_queue_delivered_at: updatedQueue.delivered_at ?? completedAt,
+        previous_order_fulfillment_status: order.fulfillment_status ?? null,
+        new_order_fulfillment_status: "dispatched",
+        fulfillment_updated_at: completedAt,
+        dispatched_at: completedAt,
+        warehouse_completed: true,
+        already_completed:
+          queueItem.fulfillment_status === "delivered",
+        queue_snapshot_before: queueItem,
+        queue_snapshot_after: updatedQueue,
+      },
+    });
+
     /*
     ========================================
     SUCCESS
-    ========================================
-
-    Notice:
-
-    NO Finance processing here.
-
-    NO Courier status update here.
-
-    NO Payment update here.
-
-    NO Inventory deduction here.
-
-    The Steadfast status sync route handles
-    actual customer delivery separately.
     ========================================
     */
 
@@ -423,6 +439,7 @@ export async function POST(
 
       data:
         updatedQueue,
+      auditLogged,
     });
   } catch (error) {
     /*

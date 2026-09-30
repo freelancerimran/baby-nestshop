@@ -1,29 +1,40 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import Button from "@/components/ui/Button";
-import { Product } from "@/types/product";
+import type { Product } from "@/types/product";
+import type { CartVariant } from "@/types/cart";
+
 import { districts } from "@/data/districts";
+
+type SelectedVariant = CartVariant & {
+  quantity: number;
+};
 
 type OrderFormProps = {
   product: Product;
-};
 
-type AvailableCoupon = {
-  id: number;
-  code: string;
-  discountType: "fixed";
-  discountValue: number;
-  minimumOrderAmount: number;
-  expiresAt: string | null;
+  hasVariants?: boolean;
+
+  selectedVariants?: SelectedVariant[];
+
+  onVariantQuantityChange?: (
+    variantId: number,
+    quantity: number
+  ) => void;
 };
 
 export default function OrderForm({
   product,
+  hasVariants = false,
+  selectedVariants = [],
+  onVariantQuantityChange,
 }: OrderFormProps) {
-  const [deliveryCharge, setDeliveryCharge] =
-    useState(product.deliveryInsideDhaka);
+  /*
+   * =========================================================
+   * CUSTOMER INFORMATION
+   * =========================================================
+   */
 
   const [customerName, setCustomerName] =
     useState("");
@@ -34,11 +45,36 @@ export default function OrderForm({
   const [address, setAddress] =
     useState("");
 
+  const [district, setDistrict] =
+    useState("");
+
+  const [note, setNote] =
+    useState("");
+
   /*
-  ========================================
-  COUPON
-  ========================================
-  */
+   * =========================================================
+   * DELIVERY
+   * =========================================================
+   */
+
+  const [deliveryArea, setDeliveryArea] =
+    useState<
+      "dhaka" | "outside"
+    >("dhaka");
+
+  const [deliveryCharge, setDeliveryCharge] =
+    useState(
+      Number(
+        product.deliveryInsideDhaka ||
+          0
+      )
+    );
+
+  /*
+   * =========================================================
+   * COUPON
+   * =========================================================
+   */
 
   const [couponCode, setCouponCode] =
     useState("");
@@ -52,23 +88,17 @@ export default function OrderForm({
   const [isApplyingCoupon, setIsApplyingCoupon] =
     useState(false);
 
-  const [availableCoupon, setAvailableCoupon] =
-    useState<AvailableCoupon | null>(null);
-
-  const [loadingCoupon, setLoadingCoupon] =
-    useState(true);
-
   /*
-  ========================================
-  GENERAL
-  ========================================
-  */
-
-  const [errorMessage, setErrorMessage] =
-    useState("");
+   * =========================================================
+   * ORDER
+   * =========================================================
+   */
 
   const [isSubmitting, setIsSubmitting] =
     useState(false);
+
+  const [errorMessage, setErrorMessage] =
+    useState("");
 
   const [orderSuccess, setOrderSuccess] =
     useState(false);
@@ -76,77 +106,299 @@ export default function OrderForm({
   const [orderId, setOrderId] =
     useState("");
 
+  /*
+   * =========================================================
+   * NORMAL PRODUCT QUANTITY
+   * =========================================================
+   */
+
   const [quantity, setQuantity] =
     useState(1);
 
-  const [district, setDistrict] =
-    useState("");
-
-  const [deliveryArea, setDeliveryArea] =
-    useState("dhaka");
-
-  /*
-  ========================================
-  STOCK
-  ========================================
-  */
-
   const [availableStock, setAvailableStock] =
-    useState<number>(0);
+    useState(
+      Number(
+        product.displayStock || 0
+      )
+    );
 
   const [loadingStock, setLoadingStock] =
     useState(true);
 
   /*
-  ========================================
-  TOTAL
-  ========================================
-  */
+   * =========================================================
+   * UNIT PRICE
+   * =========================================================
+   */
 
-  const subtotal =
-    Number(product.sellingPrice || 0) *
-    quantity;
-
-  const total =
-    Math.max(
-      0,
-      subtotal +
-        Number(deliveryCharge || 0) -
-        Number(discount || 0)
+  const parentSellingPrice =
+    Number(
+      product.sellingPrice || 0
     );
 
   /*
-  ========================================
-  STOCK LIMIT
-  ========================================
-  */
+   * =========================================================
+   * SELECTED VARIANT COUNT
+   * =========================================================
+   */
+
+  const selectedItemCount =
+    selectedVariants.reduce(
+      (sum, item) =>
+        sum +
+        Number(
+          item.quantity || 0
+        ),
+      0
+    );
+
+  /*
+   * =========================================================
+   * VARIANT SUBTOTAL
+   * =========================================================
+   */
+
+  const variantSubtotal =
+    selectedVariants.reduce(
+      (sum, item) => {
+        const unitPrice =
+          item.price != null
+            ? Number(item.price)
+            : parentSellingPrice;
+
+        return (
+          sum +
+          unitPrice *
+            Number(
+              item.quantity || 0
+            )
+        );
+      },
+      0
+    );
+
+  /*
+   * =========================================================
+   * NORMAL PRODUCT SUBTOTAL
+   * =========================================================
+   */
+
+  const normalSubtotal =
+    parentSellingPrice *
+    Number(quantity || 0);
+
+  /*
+   * =========================================================
+   * CURRENT SUBTOTAL
+   * =========================================================
+   */
+
+  const subtotal =
+    hasVariants
+      ? variantSubtotal
+      : normalSubtotal;
+
+  /*
+   * =========================================================
+   * TOTAL
+   * =========================================================
+   */
+
+  const total = Math.max(
+    0,
+    subtotal +
+      Number(
+        deliveryCharge || 0
+      ) -
+      Number(
+        discount || 0
+      )
+  );
+
+  /*
+   * =========================================================
+   * VARIANT VALIDATION
+   * =========================================================
+   */
+
+  const variantSelectionMissing =
+    hasVariants &&
+    selectedVariants.length === 0;
+
+  /*
+   * =========================================================
+   * LOAD CURRENT STOCK
+   * =========================================================
+   *
+   * For normal products only.
+   *
+   * Variant stock is validated by the
+   * server-side order transaction.
+   */
 
   useEffect(() => {
-    if (
-      availableStock > 0 &&
-      quantity > availableStock
-    ) {
-      setQuantity(availableStock);
+    if (hasVariants) {
+      setLoadingStock(false);
+      return;
+    }
 
-      setDiscount(0);
-      setCouponMessage("");
+    let cancelled = false;
+
+    const loadStock =
+      async () => {
+        try {
+          const response =
+            await fetch(
+              "/api/products",
+              {
+                cache: "no-store",
+              }
+            );
+
+          if (!response.ok) {
+            return;
+          }
+
+          const data =
+            await response.json();
+
+          const currentProduct =
+            data.products?.find(
+              (
+                item: {
+                  productId:
+                    | number
+                    | string;
+                }
+              ) =>
+                Number(
+                  item.productId
+                ) ===
+                Number(
+                  product.id
+                )
+            );
+
+          if (
+            !cancelled &&
+            currentProduct
+          ) {
+            setAvailableStock(
+              Number(
+                currentProduct.displayStock ||
+                  0
+              )
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Stock loading error:",
+            error
+          );
+        } finally {
+          if (!cancelled) {
+            setLoadingStock(
+              false
+            );
+          }
+        }
+      };
+
+    loadStock();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    product.id,
+    hasVariants,
+  ]);
+
+  /*
+   * =========================================================
+   * KEEP NORMAL QUANTITY INSIDE STOCK
+   * =========================================================
+   */
+
+  useEffect(() => {
+    if (hasVariants) {
+      return;
+    }
+
+    if (
+      availableStock <= 0
+    ) {
+      setQuantity(0);
+      return;
+    }
+
+    if (
+      quantity >
+      availableStock
+    ) {
+      setQuantity(
+        availableStock
+      );
+    }
+
+    if (quantity < 1) {
+      setQuantity(1);
     }
   }, [
     availableStock,
     quantity,
+    hasVariants,
   ]);
 
   /*
-  ========================================
-  CLEAR GENERAL ERROR
-  ========================================
-  */
+   * =========================================================
+   * DELIVERY CHARGE
+   * =========================================================
+   */
+
+  useEffect(() => {
+    if (
+      deliveryArea ===
+      "dhaka"
+    ) {
+      setDeliveryCharge(
+        Number(
+          product.deliveryInsideDhaka ||
+            0
+        )
+      );
+    } else {
+      setDeliveryCharge(
+        Number(
+          product.deliveryOutsideDhaka ||
+            0
+        )
+      );
+    }
+
+    /*
+     * Changing delivery area means
+     * previously calculated coupon/total
+     * should be recalculated visually.
+     */
+  }, [
+    deliveryArea,
+    product.deliveryInsideDhaka,
+    product.deliveryOutsideDhaka,
+  ]);
+
+  /*
+   * =========================================================
+   * CLEAR ERROR WHEN USER EDITS FORM
+   * =========================================================
+   */
 
   useEffect(() => {
     if (
       customerName.trim() ||
       phone.trim() ||
-      address.trim()
+      address.trim() ||
+      district
     ) {
       setErrorMessage("");
     }
@@ -154,532 +406,370 @@ export default function OrderForm({
     customerName,
     phone,
     address,
+    district,
   ]);
 
   /*
-  ========================================
-  LOAD CURRENT STOCK
-  ========================================
-  */
+   * =========================================================
+   * COUPON
+   * =========================================================
+   */
 
-  useEffect(() => {
-    const loadStock = async () => {
-      try {
-        const response =
-          await fetch("/api/products");
-
-        const data =
-          await response.json();
-
-        const currentProduct =
-          data.products?.find(
-            (item: {
-              productId: number;
-            }) =>
-              Number(
-                item.productId
-              ) === product.id
-          );
-
-        if (currentProduct) {
-          setAvailableStock(
-            Number(
-              currentProduct.displayStock
-            )
-          );
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoadingStock(false);
-      }
-    };
-
-    loadStock();
-  }, [product.id]);
-
-  /*
-  ========================================
-  LOAD PRODUCT COUPON
-  ========================================
-  */
-
-  useEffect(() => {
-    const loadAvailableCoupon =
-      async () => {
-        setLoadingCoupon(true);
-
-        try {
-          const response =
-            await fetch(
-              `/api/coupon/available?productId=${encodeURIComponent(
-                String(product.id)
-              )}&subtotal=${encodeURIComponent(
-                String(subtotal)
-              )}`,
-              {
-                cache: "no-store",
-              }
-            );
-
-          if (!response.ok) {
-            setAvailableCoupon(null);
-            return;
-          }
-
-          const result =
-            await response.json();
-
-          if (
-            result.success &&
-            result.coupon
-          ) {
-            setAvailableCoupon(
-              result.coupon
-            );
-          } else {
-            setAvailableCoupon(null);
-          }
-        } catch (error) {
-          console.error(
-            "Available coupon error:",
-            error
-          );
-
-          setAvailableCoupon(null);
-        } finally {
-          setLoadingCoupon(false);
-        }
-      };
-
-    loadAvailableCoupon();
-  }, [
-    product.id,
-    subtotal,
-  ]);
-
-  /*
-  ========================================
-  APPLY COUPON
-  ========================================
-  */
-
-  const applyCoupon = async (
-    codeOverride?: string
-  ) => {
-    if (isApplyingCoupon) {
-      return;
-    }
-
-    const cleanCouponCode =
-      String(
-        codeOverride ??
-          couponCode
-      )
-        .trim()
-        .toUpperCase();
-
-    /*
-    ========================================
-    EMPTY COUPON
-    ========================================
-    */
-
-    if (!cleanCouponCode) {
-      setDiscount(0);
-
-      setCouponMessage(
-        "❌ কুপন কোড লিখুন"
-      );
-
-      return;
-    }
-
-    /*
-    ========================================
-    CURRENT SUBTOTAL
-    ========================================
-    */
-
-    const currentSubtotal =
-      Number(
-        product.sellingPrice || 0
-      ) *
-      Number(quantity || 1);
-
-    /*
-    ========================================
-    APPLYING STATE
-    ========================================
-    */
-
-    setIsApplyingCoupon(true);
-
-    setCouponMessage(
-      "কুপন যাচাই করা হচ্ছে..."
-    );
-
-    try {
-      const response =
-        await fetch(
-          "/api/coupon/validate",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body: JSON.stringify({
-              couponCode:
-                cleanCouponCode,
-
-              productId:
-                String(product.id),
-
-              subtotal:
-                currentSubtotal,
-            }),
-          }
-        );
-
-      const result =
-        await response.json();
-
-      /*
-      ========================================
-      INVALID COUPON
-      ========================================
-      */
-
-      if (
-        !response.ok ||
-        !result.success
-      ) {
-        setDiscount(0);
-
-        setCouponMessage(
-          `❌ ${
-            result.error ||
-            "কুপনটি প্রযোজ্য নয়"
-          }`
-        );
-
-        return;
-      }
-
-      /*
-      ========================================
-      VALID COUPON
-      ========================================
-      */
-
-      const appliedDiscount =
-        Math.min(
-          Math.max(
-            0,
-            Number(
-              result.discount || 0
-            )
-          ),
-          currentSubtotal
-        );
-
-      setDiscount(
-        appliedDiscount
-      );
-
-      setCouponCode(
-        cleanCouponCode
-      );
-
-      setCouponMessage(
-        `✅ ৳${appliedDiscount.toLocaleString(
-          "en-US"
-        )} টাকা ছাড় প্রয়োগ হয়েছে`
-      );
-    } catch (error) {
-      console.error(
-        "Coupon validation error:",
-        error
-      );
-
-      setDiscount(0);
-
-      setCouponMessage(
-        "❌ কুপন যাচাই করতে সমস্যা হয়েছে"
-      );
-    } finally {
-      setIsApplyingCoupon(false);
-    }
-  };
-
-  /*
-  ========================================
-  APPLY FEATURED COUPON
-  ========================================
-  */
-
-  const handleApplyFeaturedCoupon =
+  const applyCoupon =
     async () => {
-      if (
-        !availableCoupon ||
-        isApplyingCoupon ||
-        isSubmitting
-      ) {
+      if (isApplyingCoupon) {
         return;
       }
 
-      const code =
-        availableCoupon.code
+      const cleanCouponCode =
+        couponCode
           .trim()
           .toUpperCase();
 
-      setCouponCode(code);
+      if (!cleanCouponCode) {
+        setDiscount(0);
 
-      await applyCoupon(code);
+        setCouponMessage(
+          "❌ কুপন কোড লিখুন"
+        );
+
+        return;
+      }
+
+      if (subtotal <= 0) {
+        setDiscount(0);
+
+        setCouponMessage(
+          "❌ আগে product/variant নির্বাচন করুন"
+        );
+
+        return;
+      }
+
+      setIsApplyingCoupon(
+        true
+      );
+
+      setCouponMessage(
+        "কুপন যাচাই করা হচ্ছে..."
+      );
+
+      try {
+        /*
+         * For multi-variant orders we send
+         * the parent product ID.
+         *
+         * Final coupon validation is still
+         * performed by the backend.
+         */
+        const response =
+          await fetch(
+            "/api/coupon/validate",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                couponCode:
+                  cleanCouponCode,
+
+                productId:
+                  String(
+                    product.id
+                  ),
+
+                subtotal,
+              }),
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !result.success
+        ) {
+          setDiscount(0);
+
+          setCouponMessage(
+            `❌ ${
+              result.error ||
+              result.message ||
+              "কুপনটি প্রযোজ্য নয়"
+            }`
+          );
+
+          return;
+        }
+
+        const appliedDiscount =
+          Math.min(
+            Math.max(
+              0,
+              Number(
+                result.discount ||
+                  0
+              )
+            ),
+            subtotal
+          );
+
+        setDiscount(
+          appliedDiscount
+        );
+
+        setCouponCode(
+          cleanCouponCode
+        );
+
+        setCouponMessage(
+          `✅ ৳${appliedDiscount.toLocaleString(
+            "en-BD"
+          )} টাকা ছাড় প্রয়োগ হয়েছে`
+        );
+      } catch (error) {
+        console.error(
+          "Coupon validation error:",
+          error
+        );
+
+        setDiscount(0);
+
+        setCouponMessage(
+          "❌ কুপন যাচাই করতে সমস্যা হয়েছে"
+        );
+      } finally {
+        setIsApplyingCoupon(
+          false
+        );
+      }
     };
 
   /*
-  ========================================
-  HANDLE ORDER
-  ========================================
-  */
+   * =========================================================
+   * REMOVE COUPON
+   * =========================================================
+   */
 
-  const handleOrder = async () => {
-    if (isSubmitting) {
-      return;
-    }
-
-    /*
-    ========================================
-    STOCK CHECK
-    ========================================
-    */
-
-    if (
-      quantity > availableStock
-    ) {
-      setErrorMessage(
-        `সর্বোচ্চ ${availableStock} টি অর্ডার করা যাবে`
-      );
-
-      return;
-    }
-
-    /*
-    ========================================
-    CLEAN INPUT
-    ========================================
-    */
-
-    const cleanName =
-      customerName.trim();
-
-    const cleanPhone =
-      phone.trim();
-
-    const cleanAddress =
-      address.trim();
-
-    /*
-    ========================================
-    NAME
-    ========================================
-    */
-
-    if (!cleanName) {
-      setErrorMessage(
-        "আপনার নাম লিখুন"
-      );
-
-      return;
-    }
-
-    /*
-    ========================================
-    PHONE
-    ========================================
-    */
-
-    if (!cleanPhone) {
-      setErrorMessage(
-        "মোবাইল নম্বর লিখুন"
-      );
-
-      return;
-    }
-
-    if (
-      !/^01\d{9}$/.test(
-        cleanPhone
-      )
-    ) {
-      setErrorMessage(
-        "সঠিক ১১ সংখ্যার মোবাইল নম্বর লিখুন"
-      );
-
-      return;
-    }
-
-    /*
-    ========================================
-    ADDRESS
-    ========================================
-    */
-
-    if (!cleanAddress) {
-      setErrorMessage(
-        "সম্পূর্ণ ঠিকানা লিখুন"
-      );
-
-      return;
-    }
-
-    /*
-    ========================================
-    DISTRICT
-    ========================================
-    */
-
-    if (!district) {
-      setErrorMessage(
-        "জেলা নির্বাচন করুন"
-      );
-
-      return;
-    }
-
-    /*
-    ========================================
-    SUBMIT
-    ========================================
-    */
-
-    setErrorMessage("");
-    setIsSubmitting(true);
-
-    /*
-    ========================================
-    FACEBOOK INITIATE CHECKOUT
-    ========================================
-    */
-
-    if (
-      typeof window !==
-        "undefined" &&
-      window.fbq
-    ) {
-      window.fbq(
-        "track",
-        "InitiateCheckout",
-        {
-          content_ids: [
-            String(
-              product.id
-            ),
-          ],
-
-          content_name:
-            product.name,
-
-          content_type:
-            "product",
-
-          currency: "BDT",
-
-          value: total,
-
-          num_items:
-            quantity,
-        }
-      );
-    }
-
-    /*
-    ========================================
-    ORDER DATA
-    ========================================
-    */
-
-    const orderData = {
-      productId:
-        product.id,
-
-      productName:
-        product.name,
-
-      quantity,
-
-      productSlug:
-        product.slug,
-
-      customerName:
-        cleanName,
-
-      phone:
-        cleanPhone,
-
-      address:
-        cleanAddress,
-
-      district,
-
-      deliveryArea,
-
-      deliveryCharge,
-
-      discount,
-
-      total,
-
-      couponCode:
-        couponCode
-          .trim()
-          .toUpperCase(),
-
-      orderDate:
-        new Date().toISOString(),
+  const removeCoupon =
+    () => {
+      setCouponCode("");
+      setDiscount(0);
+      setCouponMessage("");
     };
 
-    try {
-      const response =
-        await fetch(
-          "/api/order",
-          {
-            method: "POST",
+  /*
+   * =========================================================
+   * NORMAL PRODUCT QUANTITY
+   * =========================================================
+   */
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+  const decreaseQuantity =
+    () => {
+      setQuantity(
+        (current) =>
+          Math.max(
+            1,
+            current - 1
+          )
+      );
 
-            body:
-              JSON.stringify(
-                orderData
-              ),
-          }
-        );
+      setDiscount(0);
+      setCouponMessage("");
+    };
 
-      const result =
-        await response.json();
+  const increaseQuantity =
+    () => {
+      setQuantity(
+        (current) =>
+          Math.min(
+            availableStock,
+            current + 1
+          )
+      );
 
-      console.log(result);
+      setDiscount(0);
+      setCouponMessage("");
+    };
+
+  /*
+   * =========================================================
+   * ORDER
+   * =========================================================
+   */
+
+  const handleOrder =
+    async () => {
+      if (isSubmitting) {
+        return;
+      }
 
       /*
-      ========================================
-      SUCCESS
-      ========================================
-      */
+       * -----------------------------------------------
+       * VARIANT CHECK
+       * -----------------------------------------------
+       */
 
-      if (result.success) {
-        /*
-        ====================================
-        FACEBOOK PURCHASE
-        ====================================
-        */
+      if (
+        hasVariants &&
+        selectedVariants.length ===
+          0
+      ) {
+        setErrorMessage(
+          "⚠️ অর্ডার করার আগে অন্তত একটি ভ্যারিয়েশন নির্বাচন করুন।"
+        );
 
+        return;
+      }
+
+      /*
+       * -----------------------------------------------
+       * NORMAL STOCK CHECK
+       * -----------------------------------------------
+       */
+
+      if (
+        !hasVariants &&
+        quantity >
+          availableStock
+      ) {
+        setErrorMessage(
+          `সর্বোচ্চ ${availableStock} টি অর্ডার করা যাবে`
+        );
+
+        return;
+      }
+
+      if (
+        !hasVariants &&
+        quantity <= 0
+      ) {
+        setErrorMessage(
+          "কমপক্ষে ১টি product নির্বাচন করুন"
+        );
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------------
+       * CUSTOMER DATA
+       * -----------------------------------------------
+       */
+
+      const cleanName =
+        customerName.trim();
+
+      const cleanPhone =
+        phone.trim();
+
+      const cleanAddress =
+        address.trim();
+
+      const cleanNote =
+        note.trim();
+
+      /*
+       * NAME
+       */
+
+      if (!cleanName) {
+        setErrorMessage(
+          "আপনার নাম লিখুন"
+        );
+
+        return;
+      }
+
+      /*
+       * PHONE
+       */
+
+      if (!cleanPhone) {
+        setErrorMessage(
+          "মোবাইল নম্বর লিখুন"
+        );
+
+        return;
+      }
+
+      if (
+        !/^01\d{9}$/.test(
+          cleanPhone
+        )
+      ) {
+        setErrorMessage(
+          "সঠিক ১১ সংখ্যার মোবাইল নম্বর লিখুন"
+        );
+
+        return;
+      }
+
+      /*
+       * DISTRICT
+       */
+
+      if (!district) {
+        setErrorMessage(
+          "জেলা নির্বাচন করুন"
+        );
+
+        return;
+      }
+
+      /*
+       * ADDRESS
+       */
+
+      if (!cleanAddress) {
+        setErrorMessage(
+          "সম্পূর্ণ ঠিকানা লিখুন"
+        );
+
+        return;
+      }
+
+      /*
+       * DELIVERY AREA
+       */
+
+      if (
+        deliveryArea !==
+          "dhaka" &&
+        deliveryArea !==
+          "outside"
+      ) {
+        setErrorMessage(
+          "Delivery area নির্বাচন করুন"
+        );
+
+        return;
+      }
+
+      /*
+       * -----------------------------------------------
+       * CLEAR ERROR
+       * -----------------------------------------------
+       */
+
+      setErrorMessage("");
+
+      setIsSubmitting(
+        true
+      );
+
+      /*
+       * -----------------------------------------------
+       * FACEBOOK INITIATE CHECKOUT
+       * -----------------------------------------------
+       */
+
+      try {
         if (
           typeof window !==
             "undefined" &&
@@ -687,16 +777,31 @@ export default function OrderForm({
         ) {
           window.fbq(
             "track",
-            "Purchase",
+            "InitiateCheckout",
             {
-              content_ids: [
-                String(
-                  product.id
-                ),
-              ],
+              content_ids:
+                hasVariants
+                  ? selectedVariants.map(
+                      (item) =>
+                        `${product.id}:${item.id}`
+                    )
+                  : [
+                      String(
+                        product.id
+                      ),
+                    ],
 
               content_name:
-                product.name,
+                hasVariants
+                  ? `${product.name} - ${selectedVariants
+                      .map(
+                        (item) =>
+                          item.variantName
+                      )
+                      .join(
+                        ", "
+                      )}`
+                  : product.name,
 
               content_type:
                 "product",
@@ -706,158 +811,562 @@ export default function OrderForm({
               value: total,
 
               num_items:
-                quantity,
-            },
-            {
-              eventID:
-                result.orderId,
+                hasVariants
+                  ? selectedItemCount
+                  : quantity,
             }
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Facebook InitiateCheckout error:",
+          error
+        );
+      }
+
+      /*
+       * -----------------------------------------------
+       * ORDER ITEMS
+       * -----------------------------------------------
+       */
+
+      const orderItems =
+        hasVariants
+          ? selectedVariants.map(
+              (item) => ({
+                productId:
+                  Number(
+                    product.id
+                  ),
+
+                productName:
+                  product.name,
+
+                productSlug:
+                  product.slug,
+
+                variantId:
+                  Number(
+                    item.id
+                  ),
+
+                variantName:
+                  item.variantName,
+
+                variantSku:
+                  item.sku,
+
+                quantity:
+                  Number(
+                    item.quantity
+                  ),
+
+                unitPrice:
+                  item.price !=
+                  null
+                    ? Number(
+                        item.price
+                      )
+                    : parentSellingPrice,
+              })
+            )
+          : undefined;
+
+      /*
+       * -----------------------------------------------
+       * MAIN ORDER DATA
+       * -----------------------------------------------
+       */
+
+      const orderData = {
+        productId:
+          Number(
+            product.id
+          ),
+
+        productName:
+          product.name,
+
+        quantity:
+          hasVariants
+            ? selectedItemCount
+            : quantity,
+
+        productSlug:
+          product.slug,
+
+        /*
+         * Variant data for single variant
+         * compatibility.
+         */
+        variantId:
+          hasVariants &&
+          selectedVariants.length ===
+            1
+            ? Number(
+                selectedVariants[0]
+                  .id
+              )
+            : null,
+
+        variantName:
+          hasVariants &&
+          selectedVariants.length ===
+            1
+            ? selectedVariants[0]
+                .variantName
+            : null,
+
+        variantSku:
+          hasVariants &&
+          selectedVariants.length ===
+            1
+            ? selectedVariants[0]
+                .sku
+            : null,
+
+        /*
+         * Multiple variant items.
+         */
+        items:
+          orderItems,
+
+        /*
+         * Customer.
+         */
+        customerName:
+          cleanName,
+
+        phone:
+          cleanPhone,
+
+        address:
+          cleanAddress,
+
+        district,
+
+        note:
+          cleanNote,
+
+        /*
+         * Delivery.
+         */
+        deliveryArea,
+
+        deliveryCharge:
+
+          Number(
+            deliveryCharge ||
+              0
+          ),
+
+        /*
+         * Coupon.
+         */
+        discount:
+
+          Number(
+            discount || 0
+          ),
+
+        total,
+
+        couponCode:
+          couponCode
+            .trim()
+            .toUpperCase(),
+
+        orderDate:
+          new Date().toISOString(),
+      };
+
+      /*
+       * -----------------------------------------------
+       * CREATE ORDER
+       * -----------------------------------------------
+       */
+
+      try {
+        const response =
+          await fetch(
+            "/api/order",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify(
+                orderData
+              ),
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            result.message ||
+              result.error ||
+              "অর্ডার তৈরি করা যায়নি"
+          );
+
+          return;
+        }
+
+        if (
+          !result.success
+        ) {
+          setErrorMessage(
+            result.message ||
+              result.error ||
+              "অর্ডার তৈরি করা যায়নি"
+          );
+
+          return;
+        }
+
+        /*
+         * -------------------------------------------
+         * FACEBOOK PURCHASE
+         * -------------------------------------------
+         */
+
+        try {
+          if (
+            typeof window !==
+              "undefined" &&
+            window.fbq
+          ) {
+            window.fbq(
+              "track",
+              "Purchase",
+              {
+                content_ids:
+                  hasVariants
+                    ? selectedVariants.map(
+                        (item) =>
+                          `${product.id}:${item.id}`
+                      )
+                    : [
+                        String(
+                          product.id
+                        ),
+                      ],
+
+                content_name:
+                  hasVariants
+                    ? `${product.name} - ${selectedVariants
+                        .map(
+                          (item) =>
+                            item.variantName
+                        )
+                        .join(
+                          ", "
+                        )}`
+                    : product.name,
+
+                content_type:
+                  "product",
+
+                currency: "BDT",
+
+                value:
+                  Number(
+                    result.total ??
+                      total
+                  ),
+
+                num_items:
+                  hasVariants
+                    ? selectedItemCount
+                    : quantity,
+              },
+              {
+                eventID:
+                  result.orderId,
+              }
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Facebook Purchase error:",
+            error
           );
         }
 
         /*
-        ====================================
-        UPDATE LOCAL STOCK
-        ====================================
-        */
-
-        setAvailableStock(
-          (prev) =>
-            Math.max(
-              0,
-              prev - quantity
-            )
-        );
-
-        /*
-        ====================================
-        ORDER SUCCESS
-        ====================================
-        */
+         * -------------------------------------------
+         * SUCCESS
+         * -------------------------------------------
+         */
 
         setOrderId(
-          result.orderId || ""
+          result.orderId ||
+            ""
         );
 
-        setOrderSuccess(true);
+        setOrderSuccess(
+          true
+        );
 
         /*
-        ====================================
-        RESET FORM
-        ====================================
-        */
-
+         * Reset customer form.
+         */
         setCustomerName("");
         setPhone("");
         setAddress("");
+        setDistrict("");
+        setNote("");
 
+        /*
+         * Reset coupon.
+         */
         setCouponCode("");
         setDiscount(0);
         setCouponMessage("");
 
-        setErrorMessage("");
-      } else {
-        alert(
-          result.error ||
-            "অর্ডার জমা হয়নি"
+        /*
+         * Reset normal quantity.
+         */
+        setQuantity(1);
+
+      } catch (error) {
+        console.error(
+          "Order request error:",
+          error
+        );
+
+        setErrorMessage(
+          "Server Error. আবার চেষ্টা করুন।"
+        );
+      } finally {
+        setIsSubmitting(
+          false
         );
       }
-    } catch (error) {
-      console.error(error);
-
-      alert(
-        "সার্ভারে সমস্যা হয়েছে"
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    };
 
   /*
-  ========================================
-  ORDER SUCCESS SCREEN
-  ========================================
-  */
+   * =========================================================
+   * ORDER SUCCESS
+   * =========================================================
+   */
 
   if (orderSuccess) {
     return (
-      <div className="rounded-2xl border border-green-200 bg-green-50 p-6 text-center">
-        <h3 className="text-2xl font-bold text-green-700">
-          🎉 অর্ডার সফল হয়েছে
-        </h3>
+      <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
 
-        <p className="mt-2 text-gray-700">
-          আপনার অর্ডার গ্রহণ করা হয়েছে।
-        </p>
+        <div className="text-center">
 
-        {orderId && (
-          <p className="mt-2 font-semibold text-gray-900">
-            Order ID: {orderId}
+          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-green-600 text-3xl text-white">
+            ✓
+          </div>
+
+          <h3 className="text-xl font-extrabold text-green-800">
+            অর্ডার সফল হয়েছে!
+          </h3>
+
+          {orderId && (
+            <p className="mt-2 text-sm font-semibold text-gray-700">
+              Order ID:{" "}
+              <span className="text-green-700">
+                {orderId}
+              </span>
+            </p>
+          )}
+
+          <p className="mt-3 text-sm leading-relaxed text-gray-600">
+            আপনার অর্ডারটি সফলভাবে
+            গ্রহণ করা হয়েছে। খুব
+            শীঘ্রই আমাদের টিম আপনার
+            সাথে যোগাযোগ করবে।
           </p>
-        )}
+
+        </div>
+
       </div>
     );
   }
 
   /*
-  ========================================
-  FORM
-  ========================================
-  */
+   * =========================================================
+   * FORM UI
+   * =========================================================
+   */
 
   return (
-    <div
-      id="product-order-form"
-      className="scroll-mt-24 space-y-3.5"
-    >
+    <div className="space-y-5">
 
       {/* =====================================================
-          COUPON MODULE
-          Visible above the price summary and order button.
-          Existing coupon logic is unchanged.
+          YOUR INFORMATION
           ===================================================== */}
 
-      <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+      <div className="rounded-2xl border border-gray-200 bg-white">
 
-        {!loadingCoupon &&
-          availableCoupon && (
-            <>
-              <div className="flex items-center justify-between gap-2 bg-emerald-50/70 px-3 py-1.5">
+        <div className="border-b bg-gray-50 px-4 py-3">
 
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="text-sm">🎟️</span>
+          <h3 className="font-extrabold text-gray-900">
+            👤 আপনার তথ্য দিন
+          </h3>
 
-                  <span className="truncate text-xs font-bold text-gray-900 sm:text-sm">
-                    বিশেষ কুপন অফার
-                  </span>
-                </div>
+          <p className="mt-0.5 text-xs text-gray-500">
+            অর্ডার ডেলিভারির জন্য
+            সঠিক তথ্য দিন
+          </p>
 
-                <span className="shrink-0 text-[11px] font-semibold text-emerald-700">
-                  ৳{Number(
-                    availableCoupon.discountValue
-                  ).toLocaleString("en-US")} ছাড়
-                </span>
+        </div>
 
-              </div>
+        <div className="space-y-3 p-4">
 
-              <div className="flex items-center justify-between gap-3 px-3 py-2">
+          {/* Name */}
 
-                <div className="min-w-0">
+          <input
+            value={
+              customerName
+            }
+            onChange={(event) =>
+              setCustomerName(
+                event.target
+                  .value
+              )
+            }
+            placeholder="আপনার নাম"
+            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
 
-                  <div className="flex items-center gap-1.5">
+          {/* Phone */}
 
-                    <span className="truncate text-sm font-bold tracking-wide text-gray-900 sm:text-base">
-                      {availableCoupon.code}
-                    </span>
+          <input
+            value={phone}
+            onChange={(event) =>
+              setPhone(
+                event.target
+                  .value
+                  .replace(
+                    /\D/g,
+                    ""
+                  )
+                  .slice(
+                    0,
+                    11
+                  )
+              )
+            }
+            placeholder="মোবাইল নম্বর (01XXXXXXXXX)"
+            inputMode="numeric"
+            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
 
-                    <span className="shrink-0 text-xs text-gray-400">
-                      কুপন
-                    </span>
+          {/* District */}
 
-                  </div>
+          <select
+            value={district}
+            onChange={(event) =>
+              setDistrict(
+                event.target
+                  .value
+              )
+            }
+            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          >
 
-                  <p className="mt-0.5 text-[11px] font-medium text-emerald-600">
-                    কুপন: {availableCoupon.code}
+            <option value="">
+              জেলা নির্বাচন করুন
+            </option>
+
+            {districts.map(
+              (
+                districtName
+              ) => (
+                <option
+                  key={
+                    districtName
+                  }
+                  value={
+                    districtName
+                  }
+                >
+                  {
+                    districtName
+                  }
+                </option>
+              )
+            )}
+
+          </select>
+
+          {/* Address */}
+
+          <textarea
+            value={address}
+            onChange={(event) =>
+              setAddress(
+                event.target
+                  .value
+              )
+            }
+            placeholder="সম্পূর্ণ ঠিকানা লিখুন"
+            rows={4}
+            className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
+
+          {/* Note */}
+
+          <textarea
+            value={note}
+            onChange={(event) =>
+              setNote(
+                event.target
+                  .value
+              )
+            }
+            placeholder="অতিরিক্ত নোট (ঐচ্ছিক)"
+            rows={2}
+            className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
+
+        </div>
+
+      </div>
+
+      {/* =====================================================
+          COUPON
+          ===================================================== */}
+
+      <div className="rounded-2xl border border-gray-200 bg-white">
+
+        <div className="border-b bg-gray-50 px-4 py-3">
+
+          <h3 className="font-extrabold text-gray-900">
+            🎟️ কুপন কোড
+          </h3>
+
+          <p className="mt-0.5 text-xs text-gray-500">
+            আপনার কাছে কুপন থাকলে
+            এখানে ব্যবহার করুন
+          </p>
+
+        </div>
+
+        <div className="p-4">
+
+          {discount > 0 ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+
+              <div className="flex items-center justify-between gap-3">
+
+                <div>
+
+                  <p className="text-xs font-bold text-green-800">
+                    {couponCode}
+                  </p>
+
+                  <p className="mt-0.5 text-xs text-green-700">
+                    {couponMessage}
                   </p>
 
                 </div>
@@ -865,459 +1374,353 @@ export default function OrderForm({
                 <button
                   type="button"
                   onClick={
-                    handleApplyFeaturedCoupon
+                    removeCoupon
                   }
-                  disabled={
-                    isApplyingCoupon ||
-                    isSubmitting
-                  }
-                  className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm ${
-                    discount > 0 &&
-                    couponCode
-                      .trim()
-                      .toUpperCase() ===
-                      availableCoupon.code
-                        .trim()
-                        .toUpperCase()
-                      ? "bg-emerald-700"
-                      : "bg-emerald-600 hover:bg-emerald-700"
-                  }`}
+                  className="text-xs font-bold text-red-600"
                 >
-                  {isApplyingCoupon
-                    ? "Applying..."
-                    : discount > 0 &&
-                      couponCode
-                        .trim()
-                        .toUpperCase() ===
-                        availableCoupon.code
-                          .trim()
-                          .toUpperCase()
-                    ? "Applied ✓"
-                    : "Apply Now"}
+                  Remove
                 </button>
 
               </div>
+
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-2">
+
+                <input
+                  value={
+                    couponCode
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setCouponCode(
+                      event.target
+                        .value
+                        .toUpperCase()
+                    )
+                  }
+                  placeholder="Coupon Code"
+                  className="min-w-0 flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm uppercase outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+
+                <button
+                  type="button"
+                  onClick={
+                    applyCoupon
+                  }
+                  disabled={
+                    isApplyingCoupon
+                  }
+                  className="shrink-0 rounded-xl bg-gray-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  {isApplyingCoupon
+                    ? "..."
+                    : "Apply"}
+                </button>
+
+              </div>
+
+              {couponMessage && (
+                <p className="mt-2 text-xs font-semibold">
+                  {couponMessage}
+                </p>
+              )}
             </>
           )}
 
-        {/* Manual Coupon Input */}
+        </div>
 
-        <div className="border-t border-emerald-100 px-3 py-2">
+      </div>
 
-          <div className="flex gap-2">
+      {/* =====================================================
+          DELIVERY AREA
+          ===================================================== */}
 
-            <input
-              type="text"
-              value={couponCode}
-              onChange={(e) => {
-                setCouponCode(
-                  e.target.value
-                );
+      <div className="rounded-2xl border border-gray-200 bg-white">
 
-                if (
-                  discount > 0
-                ) {
-                  setDiscount(0);
-                  setCouponMessage("");
-                }
-              }}
-              placeholder="কুপন কোড"
-              className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm uppercase outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-            />
+        <div className="border-b bg-gray-50 px-4 py-3">
+
+          <h3 className="font-extrabold text-gray-900">
+            🚚 ডেলিভারি নির্বাচন করুন
+          </h3>
+
+          <p className="mt-0.5 text-xs text-gray-500">
+            আপনার ডেলিভারি এলাকা
+            নির্বাচন করুন
+          </p>
+
+        </div>
+
+        <div className="space-y-3 p-4">
+
+          <div className="grid grid-cols-2 gap-2">
 
             <button
               type="button"
               onClick={() =>
-                applyCoupon()
+                setDeliveryArea(
+                  "dhaka"
+                )
               }
-              disabled={
-                isApplyingCoupon ||
-                isSubmitting
-              }
-              className="shrink-0 rounded-lg bg-teal-700 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-teal-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              className={[
+                "rounded-xl border px-3 py-3",
+                "text-sm font-bold",
+                "transition",
+
+                deliveryArea ===
+                "dhaka"
+                  ? "border-teal-600 bg-teal-50 text-teal-700 ring-2 ring-teal-100"
+                  : "border-gray-200 bg-white text-gray-700 hover:border-teal-400",
+              ].join(" ")}
             >
-              {isApplyingCoupon
-                ? "Checking..."
-                : "Apply"}
+              <span className="block">
+                📍 Inside Dhaka
+              </span>
+
+              <span className="mt-1 block text-xs font-semibold">
+                ৳{" "}
+                {Number(
+                  product.deliveryInsideDhaka ||
+                    0
+                ).toLocaleString(
+                  "en-BD"
+                )}
+              </span>
+
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setDeliveryArea(
+                  "outside"
+                )
+              }
+              className={[
+                "rounded-xl border px-3 py-3",
+                "text-sm font-bold",
+                "transition",
+
+                deliveryArea ===
+                "outside"
+                  ? "border-teal-600 bg-teal-50 text-teal-700 ring-2 ring-teal-100"
+                  : "border-gray-200 bg-white text-gray-700 hover:border-teal-400",
+              ].join(" ")}
+            >
+              <span className="block">
+                🚚 Outside Dhaka
+              </span>
+
+              <span className="mt-1 block text-xs font-semibold">
+                ৳{" "}
+                {Number(
+                  product.deliveryOutsideDhaka ||
+                    0
+                ).toLocaleString(
+                  "en-BD"
+                )}
+              </span>
+
             </button>
 
           </div>
-
-          {couponMessage && (
-            <div
-              className={`mt-1 px-1 text-xs font-medium ${
-                couponMessage.startsWith(
-                  "✅"
-                )
-                  ? "text-green-600"
-                  : couponMessage.startsWith(
-                      "কুপন যাচাই"
-                    )
-                  ? "text-gray-500"
-                  : "text-red-600"
-              }`}
-            >
-              {couponMessage}
-            </div>
-          )}
 
         </div>
 
       </div>
 
+      {/* =====================================================
+          NORMAL PRODUCT QUANTITY
+          ===================================================== */}
 
-      <h2 className="text-xl font-bold text-gray-900">
-        অর্ডার করুন
-      </h2>
+      {!hasVariants && (
+        <div className="rounded-2xl border border-gray-200 bg-white p-4">
+
+          <div className="flex items-center justify-between gap-3">
+
+            <div>
+
+              <p className="font-bold text-gray-900">
+                Quantity
+              </p>
+
+              <p className="text-xs text-gray-500">
+                Available:{" "}
+                {loadingStock
+                  ? "..."
+                  : availableStock}
+              </p>
+
+            </div>
+
+            <div className="flex items-center rounded-xl border border-gray-200 bg-gray-50">
+
+              <button
+                type="button"
+                onClick={
+                  decreaseQuantity
+                }
+                disabled={
+                  quantity <=
+                  1
+                }
+                className="flex h-10 w-10 items-center justify-center text-lg font-bold disabled:opacity-40"
+              >
+                −
+              </button>
+
+              <span className="min-w-10 text-center font-bold">
+                {quantity}
+              </span>
+
+              <button
+                type="button"
+                onClick={
+                  increaseQuantity
+                }
+                disabled={
+                  quantity >=
+                  availableStock
+                }
+                className="flex h-10 w-10 items-center justify-center text-lg font-bold disabled:opacity-40"
+              >
+                +
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* =====================================================
+          ERROR
+          ===================================================== */}
 
       {errorMessage && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
           {errorMessage}
         </div>
       )}
 
-      {/* Quantity */}
-
-      <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-
-        <div className="flex items-center justify-between gap-3">
-
-          <label className="text-xs font-medium text-gray-700">
-            পরিমাণ (Quantity)
-          </label>
-
-          <div className="flex items-center gap-1.5">
-
-            <button
-              type="button"
-              onClick={() => {
-                setQuantity(
-                  (prev) =>
-                    Math.max(
-                      1,
-                      prev - 1
-                    )
-                );
-
-                setDiscount(0);
-                setCouponMessage("");
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-sm transition hover:bg-gray-100"
-            >
-              -
-            </button>
-
-            <div className="w-8 text-center text-sm font-bold">
-              {quantity}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                const nextQuantity =
-                  Math.min(
-                    availableStock ||
-                      1,
-                    quantity + 1
-                  );
-
-                setQuantity(
-                  nextQuantity
-                );
-
-                setDiscount(0);
-                setCouponMessage("");
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-sm transition hover:bg-gray-100"
-            >
-              +
-            </button>
-
-          </div>
-
-        </div>
-      </div>
-
-
-      {/* Customer Name */}
-
-      <input
-        type="text"
-        value={customerName}
-        onChange={(e) =>
-          setCustomerName(
-            e.target.value
-          )
-        }
-        placeholder="আপনার নাম"
-        className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-      />
-
-
-      {/* Phone */}
-
-      <input
-        type="tel"
-        value={phone}
-        onChange={(e) =>
-          setPhone(
-            e.target.value
-          )
-        }
-        placeholder="মোবাইল নম্বর"
-        className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-      />
-
-
-      {/* District */}
-
-      <select
-        value={district}
-        onChange={(e) =>
-          setDistrict(
-            e.target.value
-          )
-        }
-        className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-      >
-        <option value="">
-          জেলা নির্বাচন করুন
-        </option>
-
-        {districts.map(
-          (districtName) => (
-            <option
-              key={districtName}
-              value={districtName}
-            >
-              {districtName}
-            </option>
-          )
-        )}
-      </select>
-
-
-      {/* Address */}
-
-      <textarea
-        value={address}
-        onChange={(e) =>
-          setAddress(
-            e.target.value
-          )
-        }
-        placeholder="বাড়ি/ফ্ল্যাট নম্বর, বিল্ডিং, রোড, গ্রাম, এলাকা, উপজেলা ইত্যাদি লিখুন"
-        rows={2}
-        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-      />
-
-
-      {/* Delivery Area */}
-
-      <div className="space-y-2">
-
-        <h3 className="text-sm font-bold text-gray-900">
-          ডেলিভারি এরিয়া নির্বাচন করুন
-        </h3>
-
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-
-          <button
-            type="button"
-            onClick={() => {
-              setDeliveryArea("dhaka");
-              setDeliveryCharge(
-                product.deliveryInsideDhaka
-              );
-            }}
-            aria-pressed={
-              deliveryArea === "dhaka"
-            }
-            className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
-              deliveryArea === "dhaka"
-                ? "border-emerald-400 bg-emerald-50"
-                : "border-gray-200 bg-white hover:border-emerald-200 hover:bg-gray-50"
-            }`}
-          >
-            <div>
-              <p
-                className={`text-sm font-bold ${
-                  deliveryArea === "dhaka"
-                    ? "text-emerald-700"
-                    : "text-gray-800"
-                }`}
-              >
-                ঢাকার ভিতরে
-              </p>
-
-              <p className="mt-0.5 text-xs text-gray-500">
-                ৳{Number(
-                  product.deliveryInsideDhaka
-                ).toLocaleString(
-                  "en-US"
-                )} ডেলিভারি চার্জ
-              </p>
-            </div>
-
-            {deliveryArea ===
-              "dhaka" && (
-              <span
-                aria-hidden="true"
-                className="text-xl font-bold text-emerald-600"
-              >
-                ✓
-              </span>
-            )}
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() => {
-              setDeliveryArea(
-                "outside"
-              );
-
-              setDeliveryCharge(
-                product.deliveryOutsideDhaka
-              );
-            }}
-            aria-pressed={
-              deliveryArea ===
-              "outside"
-            }
-            className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
-              deliveryArea === "outside"
-                ? "border-emerald-400 bg-emerald-50"
-                : "border-gray-200 bg-white hover:border-emerald-200 hover:bg-gray-50"
-            }`}
-          >
-            <div>
-              <p
-                className={`text-sm font-bold ${
-                  deliveryArea ===
-                  "outside"
-                    ? "text-emerald-700"
-                    : "text-gray-800"
-                }`}
-              >
-                ঢাকার বাইরে
-              </p>
-
-              <p className="mt-0.5 text-xs text-gray-500">
-                ৳{Number(
-                  product.deliveryOutsideDhaka
-                ).toLocaleString(
-                  "en-US"
-                )} ডেলিভারি চার্জ
-              </p>
-            </div>
-
-            {deliveryArea ===
-              "outside" && (
-              <span
-                aria-hidden="true"
-                className="text-xl font-bold text-emerald-600"
-              >
-                ✓
-              </span>
-            )}
-          </button>
-
-        </div>
-      </div>
-
-
       {/* =====================================================
           ORDER SUMMARY
-          Kept near the bottom, directly above the order button.
           ===================================================== */}
 
-      <div className="space-y-2 rounded-xl border border-gray-300 px-3.5 py-3.5">
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
 
-        <div className="flex items-center justify-between text-sm">
-          <span>
-            পণ্যের মূল্য
-          </span>
+        <h3 className="mb-3 font-extrabold text-gray-900">
+          Order Summary
+        </h3>
 
-          <span>
-            ৳{" "}
-            {subtotal.toLocaleString(
-              "en-US"
-            )}
-          </span>
-        </div>
+        <div className="space-y-2 text-sm">
 
-        <div className="flex items-center justify-between text-sm">
-          <span>
-            ডেলিভারি চার্জ
-          </span>
+          <div className="flex justify-between">
 
-          <span>
-            ৳{" "}
-            {Number(
-              deliveryCharge || 0
-            ).toLocaleString(
-              "en-US"
-            )}
-          </span>
-        </div>
-
-        {discount > 0 && (
-          <div className="flex items-center justify-between text-sm text-green-600">
-            <span>
-              ডিসকাউন্ট
+            <span className="text-gray-600">
+              Subtotal
             </span>
 
-            <span>
-              - ৳{" "}
-              {discount.toLocaleString(
-                "en-US"
+            <span className="font-semibold">
+              ৳{" "}
+              {subtotal.toLocaleString(
+                "en-BD"
               )}
             </span>
+
           </div>
-        )}
 
-        <div className="my-1 border-t border-gray-200" />
+          {discount > 0 && (
+            <div className="flex justify-between text-green-700">
 
-        <div className="flex items-center justify-between text-lg font-bold">
-          <span>
-            মোট
-          </span>
+              <span>
+                Discount
+              </span>
 
-          <span>
-            ৳{" "}
-            {total.toLocaleString(
-              "en-US"
-            )}
-          </span>
+              <span className="font-bold">
+                − ৳{" "}
+                {discount.toLocaleString(
+                  "en-BD"
+                )}
+              </span>
+
+            </div>
+          )}
+
+          <div className="flex justify-between">
+
+            <span className="text-gray-600">
+              Delivery
+            </span>
+
+            <span className="font-semibold">
+              ৳{" "}
+              {Number(
+                deliveryCharge
+              ).toLocaleString(
+                "en-BD"
+              )}
+            </span>
+
+          </div>
+
+          <div className="border-t border-gray-200 pt-3">
+
+            <div className="flex items-center justify-between">
+
+              <span className="text-base font-extrabold">
+                সর্বমোট
+              </span>
+
+              <span className="text-2xl font-extrabold text-teal-700">
+                ৳{" "}
+                {total.toLocaleString(
+                  "en-BD"
+                )}
+              </span>
+
+            </div>
+
+          </div>
+
         </div>
 
       </div>
 
+      {/* =====================================================
+          FINAL ORDER BUTTON
+          ===================================================== */}
 
-      {/* Order Button */}
-
-      <Button
+      <button
         type="button"
         onClick={
           handleOrder
         }
-        className="text-base sm:text-lg"
         disabled={
-          loadingStock ||
           isSubmitting ||
-          availableStock <= 0
+          (hasVariants &&
+            selectedVariants.length ===
+              0)
         }
+        className="w-full rounded-2xl bg-teal-600 px-5 py-4 text-base font-extrabold text-white shadow-lg shadow-teal-100 transition hover:bg-teal-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loadingStock
-          ? "স্টক যাচাই হচ্ছে..."
-          : availableStock <= 0
-          ? "স্টক শেষ"
-          : isSubmitting
-          ? "অর্ডার পাঠানো হচ্ছে..."
-          : "অর্ডার করুন"}
-      </Button>
+        {isSubmitting
+          ? "অর্ডার তৈরি হচ্ছে..."
+          : "অর্ডার কনফার্ম করুন"}
+      </button>
+
+      {hasVariants &&
+        selectedVariants.length ===
+          0 && (
+          <p className="-mt-2 text-center text-xs font-semibold text-red-600">
+            ⚠️ অর্ডার করতে হলে আগে
+            অন্তত একটি ভ্যারিয়েশন
+            নির্বাচন করুন
+          </p>
+        )}
 
     </div>
   );

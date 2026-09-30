@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export default function AdminLoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -22,15 +22,14 @@ export default function AdminLoginPage() {
 
     try {
       const res = await fetch(
-        "/api/admin/login",
+        "/api/admin/auth/login",
         {
           method: "POST",
           headers: {
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            email,
+            identifier: identifier.trim(),
             password,
           }),
         }
@@ -38,19 +37,21 @@ export default function AdminLoginPage() {
 
       const data = await res.json();
 
-      if (!data.success) {
+      if (!res.ok || !data.success) {
         setError(
           data.message ||
-            "Login failed"
+            "Login failed. Please check your credentials."
         );
         return;
       }
 
       router.push("/admin");
+      router.refresh();
+    } catch (error) {
+      console.error("Login error:", error);
 
-    } catch {
       setError(
-        "Something went wrong"
+        "Something went wrong. Please try again."
       );
     } finally {
       setLoading(false);
@@ -69,39 +70,48 @@ export default function AdminLoginPage() {
           className="space-y-4"
         >
           <input
-            type="email"
-            placeholder="Email"
-            value={email}
+            type="text"
+            inputMode="email"
+            autoComplete="username"
+            placeholder="Email or Mobile Number"
+            value={identifier}
             onChange={(e) =>
-              setEmail(e.target.value)
+              setIdentifier(e.target.value)
             }
-            className="w-full border rounded-lg px-4 py-3"
+            className="w-full border rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-black"
             required
+            disabled={loading}
           />
 
           <input
             type="password"
+            autoComplete="current-password"
             placeholder="Password"
             value={password}
             onChange={(e) =>
-              setPassword(
-                e.target.value
-              )
+              setPassword(e.target.value)
             }
-            className="w-full border rounded-lg px-4 py-3"
+            className="w-full border rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-black"
             required
+            disabled={loading}
           />
 
           {error && (
-            <p className="text-red-500 text-sm">
-              {error}
-            </p>
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-red-600 text-sm">
+                {error}
+              </p>
+            </div>
           )}
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-black text-white py-3 rounded-lg"
+            disabled={
+              loading ||
+              !identifier.trim() ||
+              !password
+            }
+            className="w-full bg-black text-white py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             {loading
               ? "Logging in..."

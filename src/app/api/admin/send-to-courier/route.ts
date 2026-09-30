@@ -7,6 +7,14 @@ import {
   supabaseAdmin,
 } from "@/lib/supabase-admin";
 
+import {
+  hasPermission,
+} from "@/lib/permissions";
+
+import {
+  writeAuditLog,
+} from "@/lib/audit";
+
 export async function POST(
   req: NextRequest
 ) {
@@ -17,7 +25,37 @@ export async function POST(
   try {
     /*
     ========================================
-    GET ORDER ID
+    1. PERMISSION CHECK
+    ========================================
+
+    Sending an order to courier requires:
+
+    orders.sync_courier
+    ========================================
+    */
+
+    const allowed = await hasPermission(
+      "orders",
+      "sync_courier"
+    );
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            "You do not have permission to send orders to courier.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    /*
+    ========================================
+    2. GET ORDER ID
     ========================================
     */
 
@@ -40,7 +78,7 @@ export async function POST(
 
     /*
     ========================================
-    GET ORDER
+    3. GET ORDER
     ========================================
     */
 
@@ -84,7 +122,7 @@ export async function POST(
 
     /*
     ========================================
-    DUPLICATE PROTECTION
+    4. DUPLICATE PROTECTION
     ========================================
     */
 
@@ -109,7 +147,7 @@ export async function POST(
 
     /*
     ========================================
-    BASIC VALIDATION
+    5. BASIC VALIDATION
     ========================================
     */
 
@@ -160,7 +198,7 @@ export async function POST(
 
     /*
     ========================================
-    CALCULATE COURIER COD AMOUNT
+    6. CALCULATE COURIER COD AMOUNT
     ========================================
 
     Payment rules:
@@ -227,7 +265,7 @@ export async function POST(
 
     /*
     ========================================
-    SEND TO STEADFAST
+    7. SEND TO STEADFAST
     ========================================
     */
 
@@ -285,7 +323,7 @@ export async function POST(
 
     /*
     ========================================
-    READ STEADFAST RESPONSE
+    8. READ STEADFAST RESPONSE
     ========================================
     */
 
@@ -303,7 +341,7 @@ export async function POST(
 
     /*
     ========================================
-    STEADFAST ERROR CHECK
+    9. STEADFAST ERROR CHECK
     ========================================
     */
 
@@ -341,7 +379,7 @@ export async function POST(
 
     /*
     ========================================
-    SAVE COURIER RESULT
+    10. SAVE COURIER RESULT
     ========================================
     */
 
@@ -398,7 +436,80 @@ export async function POST(
 
     /*
     ========================================
-    SUCCESS
+    11. AUDIT LOG
+    ========================================
+
+    The courier order was created successfully
+    and the local order record was updated.
+
+    Audit is written only after both operations
+    above succeed.
+    ========================================
+    */
+
+    const auditLogged =
+      await writeAuditLog({
+        request: req,
+        action: "send_to_courier",
+        module: "orders",
+        targetType: "order",
+        targetId: orderId,
+        description:
+          `Order ${orderId} was sent to courier successfully.`,
+        metadata: {
+          order_id:
+            order.order_id,
+
+          customer_name:
+            order.customer_name ?? null,
+
+          phone:
+            order.phone ?? null,
+
+          previous_status:
+            order.status ?? null,
+
+          previous_courier_status:
+            order.courier_status ?? null,
+
+          previous_consignment_id:
+            order.consignment_id ?? null,
+
+          previous_tracking_code:
+            order.tracking_code ?? null,
+
+          total:
+            Number(order.total || 0),
+
+          paid_amount:
+            Number(order.paid_amount || 0),
+
+          due_amount:
+            Number(order.due_amount ?? order.total ?? 0),
+
+          cod_amount:
+            codAmount,
+
+          new_status:
+            "Processing",
+
+          new_courier_status:
+            result.consignment.status ?? null,
+
+          consignment_id:
+            result.consignment.consignment_id ?? null,
+
+          tracking_code:
+            result.consignment.tracking_code ?? null,
+
+          steadfast_http_status:
+            steadfastResponse.status,
+        },
+      });
+
+    /*
+    ========================================
+    12. SUCCESS
     ========================================
     */
 
@@ -418,6 +529,8 @@ export async function POST(
           .status,
 
       codAmount,
+
+      auditLogged,
     });
   } catch (
     error
