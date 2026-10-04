@@ -18,6 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  PanelsTopLeft,
+  UsersRound,
 } from "lucide-react";
 
 import AdminLogoutButton from "./AdminLogoutButton";
@@ -68,16 +70,45 @@ const menuItems = [
     icon: CircleDollarSign,
   },
 
+  // ==========================================================
+  // LANDING PAGES
+  // ==========================================================
+  {
+    name: "Landing Pages",
+    href: "/admin/landing-pages",
+    icon: PanelsTopLeft,
+  },
+
+  // ==========================================================
+  // TEAM
+  // ==========================================================
+  {
+    name: "Team",
+    href: "/admin/team",
+    icon: UsersRound,
+  },
+
+  // ==========================================================
+  // COUPONS
+  // ==========================================================
   {
     name: "Coupons",
     href: "/admin/coupons",
     icon: TicketPercent,
   },
+
+  // ==========================================================
+  // FACEBOOK PIXEL
+  // ==========================================================
   {
     name: "Facebook Pixel",
     href: "/admin/facebook-pixel",
     icon: BadgeDollarSign,
   },
+
+  // ==========================================================
+  // SETTINGS
+  // ==========================================================
   {
     name: "Settings",
     href: "/admin/settings",

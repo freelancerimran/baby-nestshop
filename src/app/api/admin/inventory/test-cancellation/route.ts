@@ -1,27 +1,100 @@
-import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
-import { supabaseAdmin } from "@/lib/supabase-admin";
-import { hasPermission } from "@/lib/permissions";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-export async function GET() {
+import {
+  supabaseAdmin,
+} from "@/lib/supabase-admin";
+
+import {
+  processCancelledOrder,
+} from "@/lib/inventory/process-cancelled-order";
+
+/*
+==========================================
+CANCELLATION STOCK TEST API
+==========================================
+
+DEVELOPMENT ONLY
+
+PURPOSE:
+
+Test the REAL cancelled-order stock
+restoration system without cancelling
+anything in Steadfast.
+
+FLOW:
+
+1. Get existing order
+2. Save original local order status
+3. Save original local courier status
+4. Check duplicate protection
+5. Temporarily set local:
+   status = Cancelled
+   courier_status = cancelled
+6. Run REAL cancellation stock processor
+7. Restore original local statuses
+
+IMPORTANT:
+
+This endpoint DOES NOT:
+
+- Call Steadfast
+- Cancel Steadfast consignment
+- Change tracking code
+- Change consignment ID
+
+Stock restoration IS REAL:
+
+- products.real_stock can increase
+- products.display_stock can increase
+- orders.stock_restored becomes true
+- orders.stock_restored_at is saved
+
+Use only for development testing.
+==========================================
+*/
+
+export async function POST(
+  req: NextRequest
+) {
+  /*
+  ========================================
+  VARIABLES FOR EMERGENCY RESTORE
+  ========================================
+  */
+
+  let orderId = "";
+
+  let originalOrderStatus:
+    string | null = null;
+
+  let originalCourierStatus:
+    string | null = null;
+
+  let statusTemporarilyChanged =
+    false;
+
   try {
     /*
-     * ========================================
-     * PERMISSION CHECK
-     * ========================================
-     */
+    ========================================
+    DEVELOPMENT SAFETY
+    ========================================
+    */
 
-    const allowed = await hasPermission(
-      "inventory",
-      "view"
-    );
-
-    if (!allowed) {
+    if (
+      process.env.NODE_ENV ===
+      "production"
+    ) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "You do not have permission to view inventory.",
+
+          testMode: true,
+
+          message:
+            "Cancellation test endpoint is disabled in production.",
         },
         {
           status: 403,
@@ -30,270 +103,391 @@ export async function GET() {
     }
 
     /*
-     * ========================================
-     * GET PRODUCTS
-     * ========================================
-     *
-     * Existing product data/fields are preserved.
-     * No existing stock formula is changed.
-     */
+    ========================================
+    GET ORDER ID
+    ========================================
+    */
 
-    const {
-      data: productsData,
-      error: productsError,
-    } = await supabase
-      .from("products")
-      .select("*")
-      .order("id", {
-        ascending: true,
-      });
+    const body =
+      await req.json();
 
-    if (productsError) {
-      console.error(
-        "INVENTORY PRODUCTS ERROR:",
-        productsError
-      );
+    orderId = String(
+      body.orderId || ""
+    ).trim();
 
+    if (!orderId) {
       return NextResponse.json(
         {
           success: false,
-          error: productsError.message,
+
+          testMode: true,
+
+          message:
+            "Order ID required.",
         },
         {
-          status: 500,
+          status: 400,
         }
       );
     }
 
     /*
-     * ========================================
-     * GET PRODUCT VARIANTS
-     * ========================================
-     *
-     * Variants are read server-side using the
-     * service-role client.
-     *
-     * The service-role key is NEVER exposed
-     * to the browser.
-     */
+    ========================================
+    GET CURRENT ORDER
+    ========================================
+    */
 
     const {
-      data: variantsData,
-      error: variantsError,
+      data: order,
+      error: orderError,
     } = await supabaseAdmin
-      .from("product_variants")
+      .from("orders")
       .select(
         `
-          id,
-          product_id,
-          variant_name,
-          sku,
-          price,
-          real_stock,
-          display_stock,
-          image,
-          status,
-          sort_order,
-          created_at,
-          updated_at
+        order_id,
+        product_id,
+        quantity,
+        status,
+        courier_status,
+        stock_restored,
+        stock_restored_at
         `
       )
-      .order("sort_order", {
-        ascending: true,
-      });
+      .eq(
+        "order_id",
+        orderId
+      )
+      .single();
 
-    if (variantsError) {
+    if (
+      orderError ||
+      !order
+    ) {
       console.error(
-        "INVENTORY VARIANTS ERROR:",
-        variantsError
+        "CANCELLATION TEST ORDER FETCH ERROR:",
+        orderError
       );
 
       return NextResponse.json(
         {
           success: false,
-          error: variantsError.message,
+
+          testMode: true,
+
+          message:
+            "Order not found.",
+
+          orderId,
         },
         {
-          status: 500,
+          status: 404,
         }
       );
     }
 
     /*
-     * ========================================
-     * GROUP VARIANTS BY PRODUCT
-     * ========================================
-     */
+    ========================================
+    DUPLICATE SAFETY
+    ========================================
 
-    const variantsByProduct = new Map<
-      string,
-      NonNullable<typeof variantsData>
-    >();
+    If this order already restored its
+    product stock, never run it again.
+    ========================================
+    */
 
-    for (const variant of variantsData || []) {
-      const existingVariants =
-        variantsByProduct.get(
-          variant.product_id
-        ) || [];
+    if (
+      order.stock_restored ===
+      true
+    ) {
+      return NextResponse.json({
+        success: true,
 
-      existingVariants.push(variant);
+        testMode: true,
 
-      variantsByProduct.set(
-        variant.product_id,
-        existingVariants
-      );
+        skipped: true,
+
+        message:
+          "Order stock has already been restored.",
+
+        orderId,
+
+        productId:
+          order.product_id,
+
+        quantity:
+          Number(
+            order.quantity || 0
+          ),
+
+        stockRestored:
+          true,
+
+        stockRestoredAt:
+          order.stock_restored_at,
+      });
     }
 
     /*
-     * ========================================
-     * FORMAT PRODUCTS
-     * ========================================
-     *
-     * Existing parent stock values are kept
-     * exactly as they currently exist.
-     *
-     * We are NOT changing any stock formula.
-     */
+    ========================================
+    SAVE ORIGINAL LOCAL STATE
+    ========================================
+    */
 
-    const products = (productsData || []).map(
-      (product) => {
-        const variants =
-          variantsByProduct.get(
-            product.product_id
-          ) || [];
+    originalOrderStatus =
+      order.status ?? null;
 
-        return {
-          productId:
-            product.product_id,
+    originalCourierStatus =
+      order.courier_status ?? null;
 
-          productName:
-            product.product_name,
+    console.log(
+      "CANCELLATION TEST ORIGINAL STATE:",
+      {
+        orderId,
 
-          /*
-           * Existing stock fields.
-           * DO NOT change the formula here.
-           */
-          realStock:
-            product.real_stock,
+        productId:
+          order.product_id,
 
-          displayStock:
-            product.display_stock,
+        quantity:
+          order.quantity,
 
-          status:
-            product.status,
+        orderStatus:
+          originalOrderStatus,
 
-          price:
-            product.price,
+        courierStatus:
+          originalCourierStatus,
 
-          regularPrice:
-            product.regular_price || 0,
-
-          slug:
-            product.slug,
-
-          description:
-            product.description,
-
-          image:
-            product.image || "",
-
-          galleryImage1:
-            product.gallery_image_1 || "",
-
-          galleryImage2:
-            product.gallery_image_2 || "",
-
-          galleryImage3:
-            product.gallery_image_3 || "",
-
-          galleryImage4:
-            product.gallery_image_4 || "",
-
-          featured:
-            product.featured || false,
-
-          bestSeller:
-            product.best_seller || false,
-
-          newArrival:
-            product.new_arrival || false,
-
-          /*
-           * ========================================
-           * VARIANT INFORMATION
-           * ========================================
-           */
-
-          hasVariants:
-            variants.length > 0,
-
-          variants:
-            variants.map(
-              (variant) => ({
-                id:
-                  variant.id,
-
-                productId:
-                  variant.product_id,
-
-                variantName:
-                  variant.variant_name,
-
-                sku:
-                  variant.sku,
-
-                price:
-                  variant.price,
-
-                realStock:
-                  variant.real_stock,
-
-                displayStock:
-                  variant.display_stock,
-
-                image:
-                  variant.image || null,
-
-                status:
-                  variant.status,
-
-                sortOrder:
-                  variant.sort_order,
-
-                createdAt:
-                  variant.created_at,
-
-                updatedAt:
-                  variant.updated_at,
-              })
-            ),
-        };
+        stockRestored:
+          order.stock_restored,
       }
     );
 
     /*
-     * ========================================
-     * SUCCESS
-     * ========================================
-     */
+    ========================================
+    TEMPORARILY SET LOCAL CANCELLED STATUS
+    ========================================
+
+    This changes ONLY our local Supabase
+    order record.
+
+    Nothing is sent to Steadfast.
+    ========================================
+    */
+
+    const {
+      error:
+        temporaryStatusError,
+    } = await supabaseAdmin
+      .from("orders")
+      .update({
+        status:
+          "Cancelled",
+
+        courier_status:
+          "cancelled",
+      })
+      .eq(
+        "order_id",
+        orderId
+      );
+
+    if (
+      temporaryStatusError
+    ) {
+      console.error(
+        "CANCELLATION TEST TEMP STATUS ERROR:",
+        temporaryStatusError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+
+          testMode: true,
+
+          message:
+            temporaryStatusError.message,
+
+          orderId,
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    statusTemporarilyChanged =
+      true;
+
+    /*
+    ========================================
+    RUN REAL STOCK RESTORATION PROCESSOR
+    ========================================
+    */
+
+    console.log(
+      "CANCELLATION TEST PROCESS START:",
+      orderId
+    );
+
+    const stockResult =
+      await processCancelledOrder(
+        orderId
+      );
+
+    console.log(
+      "CANCELLATION TEST PROCESS RESULT:",
+      stockResult
+    );
+
+    /*
+    ========================================
+    RESTORE ORIGINAL LOCAL ORDER STATE
+    ========================================
+    */
+
+    const {
+      error: restoreError,
+    } = await supabaseAdmin
+      .from("orders")
+      .update({
+        status:
+          originalOrderStatus ||
+          "Processing",
+
+        courier_status:
+          originalCourierStatus,
+      })
+      .eq(
+        "order_id",
+        orderId
+      );
+
+    if (restoreError) {
+      console.error(
+        "CANCELLATION TEST STATUS RESTORE ERROR:",
+        restoreError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+
+          testMode: true,
+
+          message:
+            "Cancellation test ran, but original local order status could not be restored.",
+
+          orderId,
+
+          stockRestore:
+            stockResult,
+
+          restoreError:
+            restoreError.message,
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    statusTemporarilyChanged =
+      false;
+
+    /*
+    ========================================
+    SUCCESS RESPONSE
+    ========================================
+    */
 
     return NextResponse.json({
-      success: true,
-      products,
+      success:
+        stockResult.success,
+
+      testMode: true,
+
+      orderId,
+
+      productId:
+        order.product_id,
+
+      quantity:
+        Number(
+          order.quantity || 0
+        ),
+
+      originalOrderStatus,
+
+      originalCourierStatus,
+
+      localStatusRestored:
+        true,
+
+      stockRestore:
+        stockResult,
     });
   } catch (error) {
     console.error(
-      "INVENTORY GET ERROR:",
+      "CANCELLATION TEST API ERROR:",
       error
     );
+
+    /*
+    ========================================
+    EMERGENCY LOCAL STATUS RESTORE
+    ========================================
+    */
+
+    if (
+      statusTemporarilyChanged &&
+      orderId
+    ) {
+      try {
+        const {
+          error: restoreError,
+        } = await supabaseAdmin
+          .from("orders")
+          .update({
+            status:
+              originalOrderStatus ||
+              "Processing",
+
+            courier_status:
+              originalCourierStatus,
+          })
+          .eq(
+            "order_id",
+            orderId
+          );
+
+        if (restoreError) {
+          console.error(
+            "CANCELLATION TEST EMERGENCY RESTORE FAILED:",
+            restoreError
+          );
+        }
+      } catch (
+        restoreException
+      ) {
+        console.error(
+          "CANCELLATION TEST EMERGENCY RESTORE ERROR:",
+          restoreException
+        );
+      }
+    }
 
     return NextResponse.json(
       {
         success: false,
-        error:
+
+        testMode: true,
+
+        orderId,
+
+        message:
           error instanceof Error
             ? error.message
-            : String(error),
+            : "Cancellation test failed.",
       },
       {
         status: 500,

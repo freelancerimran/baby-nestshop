@@ -19,6 +19,8 @@ import {
   BadgeDollarSign,
   TicketPercent,
   CircleDollarSign,
+  PanelsTopLeft,
+  UsersRound,
 } from "lucide-react";
 
 const menuItems = [
@@ -71,6 +73,26 @@ const menuItems = [
     name: "Money Management",
     href: "/admin/money-management",
     icon: CircleDollarSign,
+  },
+
+  // ========================================
+  // LANDING PAGES
+  // ========================================
+
+  {
+    name: "Landing Pages",
+    href: "/admin/landing-pages",
+    icon: PanelsTopLeft,
+  },
+
+  // ========================================
+  // TEAM
+  // ========================================
+
+  {
+    name: "Team",
+    href: "/admin/team",
+    icon: UsersRound,
   },
 
   // ========================================

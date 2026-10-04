@@ -249,8 +249,10 @@ async function getOrders() {
         orderType: order.order_type || "",
         orderSource:
           order.order_source === "admin"
-            ? "admin"
-            : "website",
+            ? ("admin" as const)
+            : order.order_source === "website"
+              ? ("website" as const)
+              : undefined,
 
         customerName: order.customer_name,
         phone: order.phone,

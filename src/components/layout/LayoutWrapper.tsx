@@ -12,9 +12,15 @@ export default function LayoutWrapper({
   const isAdmin =
     pathname.startsWith("/admin");
 
+  const isLandingPage =
+    pathname.startsWith("/lp/");
+
+  const shouldHide =
+    isAdmin || isLandingPage;
+
   return (
     <>
-      {!isAdmin && children}
+      {!shouldHide && children}
     </>
   );
 }
