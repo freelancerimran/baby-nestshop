@@ -19,6 +19,9 @@ ORDER ITEM
 interface OrderItem {
   productId: string;
   productName: string;
+  variantId?: number | null;
+  variantName?: string | null;
+  variantSku?: string | null;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
@@ -37,6 +40,9 @@ interface Order {
   productId: string;
   productName: string;
   productSlug: string;
+  variantId?: number | null;
+  variantName?: string | null;
+  variantSku?: string | null;
 
   customerName: string;
   phone: string;
@@ -268,6 +274,15 @@ export default function OrderDetailsModal({
             productName:
               order.productName,
 
+            variantId:
+              order.variantId ?? null,
+
+            variantName:
+              order.variantName || null,
+
+            variantSku:
+              order.variantSku || null,
+
             quantity:
               Number(
                 order.quantity || 0
@@ -287,6 +302,131 @@ export default function OrderDetailsModal({
               ),
           },
         ];
+
+  /*
+  ========================================
+  PRODUCT DISPLAY GROUPS
+  ========================================
+
+  Only the visual order-product rows are grouped.
+  Raw orderItems remain unchanged for edit mode and
+  all existing quantity/price calculations.
+
+  Example:
+  Magnetic Activity Book (Vegetable (2), Animal (1))
+  ========================================
+  */
+
+  const displayOrderItems = (() => {
+    const groups = new Map<
+      string,
+      {
+        productId: string;
+        productName: string;
+        quantity: number;
+        lineTotal: number;
+        unitPrices: number[];
+        variants: Map<string, number>;
+      }
+    >();
+
+    for (const item of orderItems) {
+      const productId = String(
+        item.productId ?? ""
+      );
+      const productName =
+        item.productName?.trim() ||
+        "Product";
+      const key = `${productId}::${productName}`;
+      const quantity = Number(
+        item.quantity || 0
+      );
+      const unitPrice = Number(
+        item.unitPrice || 0
+      );
+      const lineTotal = Number(
+        item.lineTotal || 0
+      );
+      const variantName =
+        item.variantName?.trim() || "";
+
+      const existing =
+        groups.get(key);
+
+      if (!existing) {
+        const variants = new Map<
+          string,
+          number
+        >();
+
+        if (variantName) {
+          variants.set(
+            variantName,
+            quantity
+          );
+        }
+
+        groups.set(key, {
+          productId,
+          productName,
+          quantity,
+          lineTotal,
+          unitPrices: [unitPrice],
+          variants,
+        });
+
+        continue;
+      }
+
+      existing.quantity += quantity;
+      existing.lineTotal += lineTotal;
+      existing.unitPrices.push(
+        unitPrice
+      );
+
+      if (variantName) {
+        existing.variants.set(
+          variantName,
+          (existing.variants.get(
+            variantName
+          ) || 0) + quantity
+        );
+      }
+    }
+
+    return Array.from(
+      groups.values()
+    ).map((group) => {
+      const variantSummary =
+        Array.from(
+          group.variants.entries()
+        )
+          .map(
+            ([name, quantity]) =>
+              `${name} (${quantity})`
+          )
+          .join(", ");
+
+      const allUnitPricesSame =
+        group.unitPrices.every(
+          (price) =>
+            price ===
+            group.unitPrices[0]
+        );
+
+      return {
+        productId: group.productId,
+        displayName: variantSummary
+          ? `${group.productName} (${variantSummary})`
+          : group.productName,
+        quantity: group.quantity,
+        unitPrice: allUnitPricesSame
+          ? group.unitPrices[0]
+          : null,
+        lineTotal: group.lineTotal,
+      };
+    });
+  })();
 
   /*
   ========================================
@@ -1108,8 +1248,8 @@ export default function OrderDetailsModal({
               </h3>
 
               <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-700">
-                {orderItems.length}{" "}
-                {orderItems.length ===
+                {displayOrderItems.length}{" "}
+                {displayOrderItems.length ===
                 1
                   ? "Product"
                   : "Products"}
@@ -1139,7 +1279,7 @@ export default function OrderDetailsModal({
 
               </div>
 
-              {orderItems.map(
+              {displayOrderItems.map(
                 (
                   item,
                   index
@@ -1150,22 +1290,19 @@ export default function OrderDetailsModal({
                   >
 
                     <div className="font-medium text-gray-900">
-                      {
-                        item.productName
-                      }
+                      {item.displayName}
                     </div>
 
                     <div className="text-center font-semibold">
-                      {
-                        item.quantity
-                      }
+                      {item.quantity}
                     </div>
 
                     <div className="text-right">
-                      ৳{" "}
-                      {Number(
-                        item.unitPrice
-                      ).toLocaleString()}
+                      {item.unitPrice === null
+                        ? "—"
+                        : `৳ ${Number(
+                            item.unitPrice
+                          ).toLocaleString()}`}
                     </div>
 
                     <div className="text-right font-semibold">

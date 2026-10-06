@@ -41,8 +41,6 @@ async function getOrders(ids: string[]) {
   ================================================
   GET ACTUAL ORDER ITEMS
   ================================================
-  
-  Multi-product orders are stored here.
   */
 
   const {
@@ -56,6 +54,9 @@ async function getOrders(ids: string[]) {
         order_id,
         product_id,
         product_name,
+        variant_id,
+        variant_name,
+        variant_sku,
         quantity,
         unit_price,
         line_total
@@ -98,6 +99,19 @@ async function getOrders(ids: string[]) {
       productName:
         item.product_name ||
         "Product",
+
+      variantId:
+        item.variant_id != null
+          ? Number(item.variant_id)
+          : null,
+
+      variantName:
+        item.variant_name ||
+        null,
+
+      variantSku:
+        item.variant_sku ||
+        null,
 
       quantity:
         Number(
@@ -176,8 +190,6 @@ async function getOrders(ids: string[]) {
       ============================================
       PAYMENT
       ============================================
-      
-      due_amount = 0 is valid.
       */
 
       const dueAmount =
@@ -237,10 +249,9 @@ async function getOrders(ids: string[]) {
       /*
       ============================================
       LEGACY FALLBACK
+
+      Old orders may not have order_items.
       ============================================
-      
-      If an old order has no order_items,
-      use the master order product.
       */
 
       const finalItems =
@@ -251,6 +262,21 @@ async function getOrders(ids: string[]) {
                 productName:
                   order.product_name ||
                   "Product",
+
+                variantId:
+                  order.variant_id != null
+                    ? Number(
+                        order.variant_id
+                      )
+                    : null,
+
+                variantName:
+                  order.variant_name ||
+                  null,
+
+                variantSku:
+                  order.variant_sku ||
+                  null,
 
                 quantity:
                   Number(
@@ -266,12 +292,6 @@ async function getOrders(ids: string[]) {
                     order.product_price ??
                       0
                   ),
-
-                /*
-                For legacy orders,
-                calculate product line total
-                from product price × quantity.
-                */
 
                 lineTotal:
                   Number(
@@ -292,10 +312,6 @@ async function getOrders(ids: string[]) {
       */
 
       return {
-        /*
-        ORDER
-        */
-
         orderId:
           order.order_id,
 
@@ -585,6 +601,10 @@ export default async function PrintLabelsPage({
                             item.productName ||
                             "Product",
 
+                          variantName:
+                            item.variantName ||
+                            null,
+
                           quantity:
                             Number(
                               item.quantity ??
@@ -609,6 +629,9 @@ export default async function PrintLabelsPage({
                           productName:
                             order.productName ||
                             "Product",
+
+                          variantName:
+                            null,
 
                           quantity:
                             Number(

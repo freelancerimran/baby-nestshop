@@ -15,7 +15,11 @@ async function getOrders() {
       .order("created_at", { ascending: false });
 
     if (ordersError) {
-      console.error("ORDERS PAGE SUPABASE ERROR:", ordersError);
+      console.error(
+        "ORDERS PAGE SUPABASE ERROR:",
+        ordersError
+      );
+
       return [];
     }
 
@@ -29,13 +33,19 @@ async function getOrders() {
         order_id,
         product_id,
         product_name,
+        variant_id,
+        variant_name,
+        variant_sku,
         quantity,
         unit_price,
         line_total
       `);
 
     if (orderItemsError) {
-      console.error("ORDERS PAGE ORDER ITEMS ERROR:", orderItemsError);
+      console.error(
+        "ORDERS PAGE ORDER ITEMS ERROR:",
+        orderItemsError
+      );
     }
 
     const {
@@ -46,43 +56,111 @@ async function getOrders() {
       .select("product_id, image");
 
     if (productsError) {
-      console.error("ORDERS PAGE PRODUCTS ERROR:", productsError);
+      console.error(
+        "ORDERS PAGE PRODUCTS ERROR:",
+        productsError
+      );
     }
 
-    const productImages = new Map<string, string>();
+    const productImages = new Map<
+      string,
+      string
+    >();
 
-    (productsData || []).forEach((product) => {
-      const productId = String(product.product_id || "").trim();
+    (productsData || []).forEach(
+      (product) => {
+        const productId = String(
+          product.product_id || ""
+        ).trim();
 
-      if (productId) {
-        productImages.set(productId, product.image || "");
+        if (productId) {
+          productImages.set(
+            productId,
+            product.image || ""
+          );
+        }
       }
-    });
+    );
 
-    const itemsByOrderId = new Map<string, any[]>();
+    const itemsByOrderId =
+      new Map<string, any[]>();
 
-    (orderItemsData || []).forEach((item) => {
-      const orderId = String(item.order_id || "").trim();
+    (orderItemsData || []).forEach(
+      (item) => {
+        const orderId = String(
+          item.order_id || ""
+        ).trim();
 
-      if (!orderId) {
-        return;
+        if (!orderId) {
+          return;
+        }
+
+        const productId = String(
+          item.product_id || ""
+        ).trim();
+
+        const existingItems =
+          itemsByOrderId.get(
+            orderId
+          ) || [];
+
+        existingItems.push({
+          id: item.id,
+
+          productId,
+
+          productName:
+            item.product_name ||
+            "Product",
+
+          /*
+          ========================================
+          VARIANT SNAPSHOT
+          ========================================
+          */
+
+          variantId:
+            item.variant_id != null
+              ? Number(
+                  item.variant_id
+                )
+              : null,
+
+          variantName:
+            item.variant_name ||
+            null,
+
+          variantSku:
+            item.variant_sku ||
+            null,
+
+          quantity:
+            Number(
+              item.quantity || 0
+            ),
+
+          unitPrice:
+            Number(
+              item.unit_price || 0
+            ),
+
+          lineTotal:
+            Number(
+              item.line_total || 0
+            ),
+
+          image:
+            productImages.get(
+              productId
+            ) || "",
+        });
+
+        itemsByOrderId.set(
+          orderId,
+          existingItems
+        );
       }
-
-      const productId = String(item.product_id || "").trim();
-      const existingItems = itemsByOrderId.get(orderId) || [];
-
-      existingItems.push({
-        id: item.id,
-        productId,
-        productName: item.product_name || "Product",
-        quantity: Number(item.quantity || 0),
-        unitPrice: Number(item.unit_price || 0),
-        lineTotal: Number(item.line_total || 0),
-        image: productImages.get(productId) || "",
-      });
-
-      itemsByOrderId.set(orderId, existingItems);
-    });
+    );
 
     /*
     ========================================
@@ -103,201 +181,421 @@ async function getOrders() {
     ========================================
     */
 
-    const deriveLegacyQuantity = (order: any) => {
-      const storedQuantity = Number(order.quantity ?? 0);
+    const deriveLegacyQuantity = (
+      order: any
+    ) => {
+      const storedQuantity =
+        Number(
+          order.quantity ?? 0
+        );
 
       if (storedQuantity > 0) {
-        return Math.max(1, Math.round(storedQuantity));
+        return Math.max(
+          1,
+          Math.round(
+            storedQuantity
+          )
+        );
       }
 
-      const productPrice = Number(order.product_price ?? 0);
-      const total = Number(order.total ?? order.grand_total ?? 0);
-      const deliveryCharge = Number(order.delivery_charge ?? 0);
-      const discount = Number(order.discount ?? 0);
+      const productPrice =
+        Number(
+          order.product_price ??
+            0
+        );
+
+      const total =
+        Number(
+          order.total ??
+            order.grand_total ??
+            0
+        );
+
+      const deliveryCharge =
+        Number(
+          order.delivery_charge ??
+            0
+        );
+
+      const discount =
+        Number(
+          order.discount ?? 0
+        );
 
       /*
-      For legacy orders the final total normally follows:
+      For legacy orders:
 
         total = product price × quantity
               + delivery
               - discount
 
-      This lets us recover the real quantity even
-      when the old `orders.quantity` value is 0.
+      This recovers the real quantity
+      when orders.quantity is 0.
       */
+
       if (productPrice > 0) {
         const derived =
-          (total - deliveryCharge + discount) /
+          (
+            total -
+            deliveryCharge +
+            discount
+          ) /
           productPrice;
 
         if (
-          Number.isFinite(derived) &&
+          Number.isFinite(
+            derived
+          ) &&
           derived > 0 &&
-          Math.abs(derived - Math.round(derived)) < 0.01
+          Math.abs(
+            derived -
+              Math.round(
+                derived
+              )
+          ) < 0.01
         ) {
-          return Math.max(1, Math.round(derived));
+          return Math.max(
+            1,
+            Math.round(
+              derived
+            )
+          );
         }
       }
 
-      /*
-      A legacy single-product order without any
-      usable quantity value represents at least
-      one product.
-      */
       return 1;
     };
 
-    return (ordersData || []).map((order) => {
-      const orderId = String(order.order_id || "").trim();
+    return (
+      ordersData || []
+    ).map(
+      (order) => {
+        const orderId =
+          String(
+            order.order_id ||
+              ""
+          ).trim();
 
-      const legacyProductId = String(
-        order.product_id || ""
-      ).trim();
+        const legacyProductId =
+          String(
+            order.product_id ||
+              ""
+          ).trim();
 
-      const storedItems = itemsByOrderId.get(orderId) || [];
+        const storedItems =
+          itemsByOrderId.get(
+            orderId
+          ) || [];
 
-      const normalizedItems =
-        storedItems.length > 0
-          ? storedItems.map((item) => ({
-              ...item,
-              quantity: Math.max(
-                1,
-                Number(item.quantity || 0)
-              ),
-              unitPrice: Number(item.unitPrice || 0),
-              lineTotal:
-                Number(item.lineTotal || 0) ||
-                Math.max(
-                  1,
-                  Number(item.quantity || 0)
-                ) *
-                  Number(item.unitPrice || 0),
-            }))
-          : legacyProductId
-            ? [
-                {
-                  id: undefined,
-                  productId: legacyProductId,
-                  productName:
-                    order.product_name || "Product",
-                  quantity: deriveLegacyQuantity(order),
-                  unitPrice: Number(
-                    order.product_price || 0
-                  ),
+        const normalizedItems =
+          storedItems.length > 0
+            ? storedItems.map(
+                (item) => ({
+                  ...item,
+
+                  quantity:
+                    Math.max(
+                      1,
+                      Number(
+                        item.quantity ||
+                          0
+                      )
+                    ),
+
+                  unitPrice:
+                    Number(
+                      item.unitPrice ||
+                        0
+                    ),
+
                   lineTotal:
-                    Number(order.product_price || 0) *
-                    deriveLegacyQuantity(order),
-                  image:
-                    productImages.get(
-                      legacyProductId
-                    ) || "",
-                },
-              ]
-            : [];
+                    Number(
+                      item.lineTotal ||
+                        0
+                    ) ||
+                    Math.max(
+                      1,
+                      Number(
+                        item.quantity ||
+                          0
+                      )
+                    ) *
+                      Number(
+                        item.unitPrice ||
+                          0
+                      ),
+                })
+              )
+            : legacyProductId
+              ? [
+                  {
+                    id: undefined,
 
-      const totalItems = normalizedItems.reduce(
-        (sum, item) =>
-          sum + Number(item.quantity || 0),
-        0
-      );
+                    productId:
+                      legacyProductId,
 
-      const fallbackQuantity =
-        normalizedItems.length > 0
-          ? totalItems
-          : deriveLegacyQuantity(order);
+                    productName:
+                      order.product_name ||
+                      "Product",
 
-      const total = Number(order.total || 0);
-      const paidAmount = Number(order.paid_amount || 0);
+                    /*
+                    ====================================
+                    LEGACY VARIANT SNAPSHOT
+                    ====================================
+                    */
 
-      const dueAmount =
-        order.due_amount !== null &&
-        order.due_amount !== undefined
-          ? Number(order.due_amount)
-          : Math.max(0, total - paidAmount);
+                    variantId:
+                      order.variant_id !=
+                      null
+                        ? Number(
+                            order.variant_id
+                          )
+                        : null,
 
-      let paymentStatus = order.payment_status;
+                    variantName:
+                      order.variant_name ||
+                      null,
 
-      if (!paymentStatus) {
-        if (total > 0 && paidAmount >= total) {
-          paymentStatus = "Paid";
-        } else if (paidAmount > 0 && paidAmount < total) {
-          paymentStatus = "Partially Paid";
-        } else {
-          paymentStatus = "Unpaid";
+                    variantSku:
+                      order.variant_sku ||
+                      null,
+
+                    quantity:
+                      deriveLegacyQuantity(
+                        order
+                      ),
+
+                    unitPrice:
+                      Number(
+                        order.product_price ||
+                          0
+                      ),
+
+                    lineTotal:
+                      Number(
+                        order.product_price ||
+                          0
+                      ) *
+                      deriveLegacyQuantity(
+                        order
+                      ),
+
+                    image:
+                      productImages.get(
+                        legacyProductId
+                      ) || "",
+                  },
+                ]
+              : [];
+
+        const totalItems =
+          normalizedItems.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.quantity ||
+                  0
+              ),
+            0
+          );
+
+        const fallbackQuantity =
+          normalizedItems.length >
+          0
+            ? totalItems
+            : deriveLegacyQuantity(
+                order
+              );
+
+        const total =
+          Number(
+            order.total || 0
+          );
+
+        const paidAmount =
+          Number(
+            order.paid_amount ||
+              0
+          );
+
+        const dueAmount =
+          order.due_amount !==
+            null &&
+          order.due_amount !==
+            undefined
+            ? Number(
+                order.due_amount
+              )
+            : Math.max(
+                0,
+                total -
+                  paidAmount
+              );
+
+        let paymentStatus =
+          order.payment_status;
+
+        if (!paymentStatus) {
+          if (
+            total > 0 &&
+            paidAmount >=
+              total
+          ) {
+            paymentStatus =
+              "Paid";
+          } else if (
+            paidAmount > 0 &&
+            paidAmount <
+              total
+          ) {
+            paymentStatus =
+              "Partially Paid";
+          } else {
+            paymentStatus =
+              "Unpaid";
+          }
         }
+
+        return {
+          orderId,
+
+          date:
+            order.order_date,
+
+          productId:
+            legacyProductId,
+
+          productName:
+            order.product_name ||
+            "Product",
+
+          productSlug:
+            order.product_slug ||
+            "",
+
+          productImage:
+            productImages.get(
+              legacyProductId
+            ) || "",
+
+          quantity:
+            Number(
+              order.quantity ||
+                fallbackQuantity
+            ),
+
+          productPrice:
+            Number(
+              order.product_price ||
+                0
+            ),
+
+          items:
+            normalizedItems,
+
+          totalItems,
+
+          orderType:
+            order.order_type ||
+            "",
+
+          orderSource:
+            order.order_source ===
+            "admin"
+              ? "admin"
+              : order.order_source ===
+                  "website"
+                ? "website"
+                : undefined,
+
+          customerName:
+            order.customer_name,
+
+          phone:
+            order.phone,
+
+          district:
+            order.district,
+
+          deliveryArea:
+            order.delivery_area,
+
+          address:
+            order.address,
+
+          deliveryCharge:
+            Number(
+              order.delivery_charge ||
+                0
+            ),
+
+          discount:
+            Number(
+              order.discount || 0
+            ),
+
+          couponCode:
+            order.coupon_code ||
+            "",
+
+          subtotal:
+            Number(
+              order.subtotal ??
+                total
+            ),
+
+          grandTotal:
+            Number(
+              order.grand_total ??
+                total
+            ),
+
+          total,
+
+          paidAmount,
+
+          dueAmount,
+
+          paymentStatus,
+
+          status:
+            order.status ||
+            "Pending",
+
+          trackingCode:
+            order.tracking_code ||
+            "",
+
+          consignmentId:
+            order.consignment_id ||
+            "",
+
+          courierStatus:
+            order.courier_status ||
+            "",
+
+          lastStatusSync:
+            order.last_status_sync ||
+            null,
+        };
       }
-
-      return {
-        orderId,
-        date: order.order_date,
-
-        productId: legacyProductId,
-        productName: order.product_name || "Product",
-        productSlug: order.product_slug || "",
-        productImage:
-          productImages.get(legacyProductId) || "",
-
-        quantity: Number(
-          order.quantity || fallbackQuantity
-        ),
-        productPrice: Number(
-          order.product_price || 0
-        ),
-
-        items: normalizedItems,
-        totalItems,
-        orderType: order.order_type || "",
-        orderSource:
-          order.order_source === "admin"
-            ? ("admin" as const)
-            : order.order_source === "website"
-              ? ("website" as const)
-              : undefined,
-
-        customerName: order.customer_name,
-        phone: order.phone,
-        district: order.district,
-        deliveryArea: order.delivery_area,
-        address: order.address,
-
-        deliveryCharge: Number(
-          order.delivery_charge || 0
-        ),
-        discount: Number(order.discount || 0),
-        couponCode: order.coupon_code || "",
-
-        subtotal: Number(
-          order.subtotal ?? total
-        ),
-        grandTotal: Number(
-          order.grand_total ?? total
-        ),
-        total,
-
-        paidAmount,
-        dueAmount,
-        paymentStatus,
-
-        status: order.status || "Pending",
-
-        trackingCode:
-          order.tracking_code || "",
-        consignmentId:
-          order.consignment_id || "",
-        courierStatus:
-          order.courier_status || "",
-        lastStatusSync:
-          order.last_status_sync || null,
-      };
-    });
+    );
   } catch (error) {
-    console.error("ORDERS PAGE ERROR:", error);
+    console.error(
+      "ORDERS PAGE ERROR:",
+      error
+    );
+
     return [];
   }
 }
 
 export default async function OrdersPage() {
-  const orders = await getOrders();
+  const orders =
+    await getOrders();
 
   return (
     <div className="space-y-6 px-3 pb-8 pt-5 sm:px-5 lg:px-6 xl:px-7">
@@ -330,7 +628,9 @@ export default async function OrdersPage() {
         </Link>
       </div>
 
-      <OrdersTable orders={orders} />
+      <OrdersTable
+        orders={orders}
+      />
     </div>
   );
 }
